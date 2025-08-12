@@ -44,6 +44,10 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
         lastLowPrice
         avg24hPrice
         basePrice
+        gridImageLink
+        link
+        width
+        height
         sellFor {
           vendor {
             name
@@ -59,6 +63,10 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
         lastLowPrice
         avg24hPrice
         basePrice
+        gridImageLink
+        link
+        width
+        height
         sellFor {
           vendor {
             name
@@ -105,6 +113,12 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
                 # Base and updated
                 "basePrice": it.get("basePrice"),
                 "updated": it.get("updated"),
+                # Media and links
+                "gridImageLink": it.get("gridImageLink"),
+                "link": it.get("link"),
+                # Size
+                "width": it.get("width"),
+                "height": it.get("height"),
             }
             bv = best_vendor(it.get("sellFor"))
             if bv:
@@ -120,6 +134,10 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
                     "name": it.get("name"),
                     "shortName": it.get("shortName"),
                     "basePrice": it.get("basePrice"),
+                    "gridImageLink": it.get("gridImageLink"),
+                    "link": it.get("link"),
+                    "width": it.get("width"),
+                    "height": it.get("height"),
                 }
                 by_id[eid] = tgt
             tgt["pvePrice"] = it.get("lastLowPrice")

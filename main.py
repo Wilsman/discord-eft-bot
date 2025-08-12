@@ -102,84 +102,66 @@ async def price(interaction: discord.Interaction, item_name: str):
         minutes = mins % 60
         return f"{hours}h{minutes}m" if hours > 0 else f"{minutes}m"
 
-    # Create embed (focus: Flea, Vendor, Base)
+    # Create embed header (title + link + thumbnail)
     embed = discord.Embed(
         title=item["name"],
-        description=(item.get("shortName") or ""),
-        color=0x2b2d31  # Dark theme color
+        color=0x2b2d31,
+        url=item.get("link") or discord.Embed.Empty,
     )
+    thumb = item.get("gridImageLink")
+    if thumb:
+        embed.set_thumbnail(url=thumb)
 
-    # Flea (PvP) — most prominent
+    # Primary price block (two-column inline fields)
     pvp_price = item.get('price')
     if pvp_price is not None:
-        embed.add_field(
-            name="🛒 Flea (PvP)",
-            value=f"**{pvp_price:,}₽**\nUpdated {format_time(pvp_mins)} ago",
-            inline=False
-        )
+        embed.add_field(name="Flea Market Price", value=f"**{pvp_price:,}₽**", inline=True)
     else:
-        embed.add_field(
-            name="🛒 Flea (PvP)",
-            value="Not available",
-            inline=False
-        )
+        embed.add_field(name="Flea Market Price", value="N/A", inline=True)
 
-    # Vendor price (best sell)
     trader_price = item.get('traderSellPrice')
-    trader_name = item.get('traderSellName', 'Unknown Trader')
     if trader_price is not None:
-        embed.add_field(
-            name="🏪 Vendor (Sell)",
-            value=f"**{trader_price:,}₽**\n{trader_name}",
-            inline=True
-        )
+        embed.add_field(name="Trader Buying Price", value=f"**{trader_price:,}₽**", inline=True)
     else:
-        embed.add_field(
-            name="🏪 Vendor (Sell)",
-            value="Not available",
-            inline=True
-        )
+        embed.add_field(name="Trader Buying Price", value="N/A", inline=True)
 
-    # Base price
+    # Price per slot (based on PvP flea price)
+    width = item.get('width') or 0
+    height = item.get('height') or 0
+    slots = width * height if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0 else 0
+    if pvp_price is not None and slots > 0:
+        pps = int(round(pvp_price / slots))
+        embed.add_field(name="Price Per Slot", value=f"{pps:,}₽", inline=True)
+    else:
+        embed.add_field(name="Price Per Slot", value="N/A", inline=True)
+
+    # Highlighted Base Price (yellow accent via emoji)
     base_price = item.get('basePrice')
     if base_price is not None:
-        embed.add_field(
-            name="📦 Base Price",
-            value=f"**{base_price:,}₽**",
-            inline=True
-        )
+        embed.add_field(name="🟡 Base Price", value=f"**{base_price:,}₽**", inline=True)
     else:
-        embed.add_field(
-            name="📦 Base Price",
-            value="Not available",
-            inline=True
-        )
+        embed.add_field(name="🟡 Base Price", value="N/A", inline=True)
 
-    # PvE flea and 24h average (supporting info)
-    pve_price = item.get('pvePrice')
-    pve_updated = item.get('pveUpdated')
-    if pve_price is not None and pve_updated:
-        pve_dt = datetime.fromisoformat(pve_updated.replace("Z", "+00:00"))
-        pve_mins = int((current_dt - pve_dt).total_seconds() / 60)
-        embed.add_field(
-            name="🤖 Flea (PvE)",
-            value=f"{pve_price:,}₽\nUpdated {format_time(pve_mins)} ago",
-            inline=True
-        )
-    else:
-        embed.add_field(
-            name="🤖 Flea (PvE)",
-            value="Not available",
-            inline=True
-        )
-
+    # Secondary block
     avg_24h = item.get('avg24hPrice')
     if isinstance(avg_24h, int):
-        embed.add_field(
-            name="📈 24h Avg",
-            value=f"{avg_24h:,}₽",
-            inline=True
-        )
+        embed.add_field(name="24 Hour Price AVG", value=f"{avg_24h:,}₽", inline=True)
+    else:
+        embed.add_field(name="24 Hour Price AVG", value="N/A", inline=True)
+
+    trader_name = item.get('traderSellName') or "Unknown Trader"
+    embed.add_field(name="Trader to sell to", value=trader_name, inline=True)
+
+    # Footer: last updated and attribution
+    # Prefer PvP updated; otherwise fallback to PvE updated
+    last_mins = pvp_mins
+    if last_mins is None:
+        pve_updated = item.get('pveUpdated')
+        if pve_updated:
+            pve_dt = datetime.fromisoformat(pve_updated.replace("Z", "+00:00"))
+            last_mins = int((current_dt - pve_dt).total_seconds() / 60)
+    updated_str = f"Last Updated: {format_time(last_mins)} ago" if last_mins is not None else "Last Updated: N/A"
+    embed.set_footer(text=f"{updated_str} - Data provided by Tarkov.dev")
 
     await interaction.followup.send(embed=embed)
 
