@@ -8,6 +8,7 @@ import aiohttp
 import json
 import requests
 import ollama
+from cultist import compute_cultist_selection
 import datetime
 import traceback
 from dataclasses import dataclass
@@ -49,22 +50,72 @@ intents: Intents = Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.tree.command(name="cultist", description="Search for optimal cultist circle items to sacrifice")
+@bot.tree.command(name="cultist", description="Auto-select items to reach base value threshold with min total cost")
 @app_commands.describe(
-    tags="Item tags to filter by (default: barter-item)",
-    threshold="Minimum price threshold in roubles (default: 400000)",
-    max_items="Maximum number of items to show (default: 5)"
+    threshold="Target total base value in roubles (default: 400000)",
+    max_items="Maximum number of items allowed (default: 5)",
+    mode="Cost source: PvP (trader) or PvE (flea)",
+    randomize="Slightly randomize ties (shuffle candidates before DP)",
+)
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="PvP (Trader cost)", value="pvp"),
+        app_commands.Choice(name="PvE (Flea cost)", value="pve"),
+    ]
 )
 async def cultist(
-    interaction: discord.Interaction, 
-    tags: str = "barter-item", 
-    threshold: int = 400000, 
-    max_items: int = 5
+    interaction: discord.Interaction,
+    threshold: int = 400000,
+    max_items: int = 5,
+    mode: Optional[app_commands.Choice[str]] = None,
+    randomize: bool = False,
 ):
+    """Select up to max_items whose base value sum ≥ threshold minimizing total cost.
+    Repetition allowed. PvP uses trader sell price for cost (flea closed), PvE uses flea.
+    """
     await interaction.response.defer()
-    data = await fetch_cultist_data(tags, threshold, max_items)
-    response = format_cultist_response(data)
-    await interaction.followup.send(response)
+    from price_search import fetch_items_data
+    selected_mode = (mode.value if mode else "pvp")
+    items_data = await fetch_items_data()
+    try:
+        result = compute_cultist_selection(
+            items_data=items_data,
+            threshold=threshold,
+            max_items=max_items,
+            mode=selected_mode,
+            randomize=randomize,
+        )
+    except Exception as e:
+        await interaction.followup.send(f"Error: {e}")
+        return
+
+    sel_lines = result.get("sel_lines", [])
+    total_value = result.get("total_value", 0)
+    total_cost = result.get("total_cost", 0)
+
+    # Build embed
+    mode_label = "PvE (Flea)" if selected_mode == "pve" else "PvP (Trader)"
+    desc = (
+        f"Mode: {mode_label}\n"
+        f"Threshold: {threshold:,}₽ | Max items: {max_items}\n"
+        f"Total Value: {total_value:,}₽ | Total Cost: {total_cost:,}₽"
+    )
+    embed = discord.Embed(title="Cultist Auto-Select", description=desc, color=0x2b2d31)
+    if sel_lines:
+        # Chunk lines if too long
+        chunk = []
+        current = 0
+        for line in sel_lines:
+            if current + len(line) + 1 > 1000 and chunk:
+                embed.add_field(name="Selection", value="\n".join(chunk), inline=False)
+                chunk = []
+                current = 0
+            chunk.append(line)
+            current += len(line) + 1
+        if chunk:
+            embed.add_field(name="Selection", value="\n".join(chunk), inline=False)
+
+    await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name="price", description="Search for item prices")
 @app_commands.describe(
@@ -128,22 +179,14 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
         embed.set_thumbnail(url=thumb)
 
     # Primary price block (two-column inline fields)
-    flea_price = item.get('pvePrice') if selected_mode == 'pve' else item.get('price')
-    # PvP fallback: if PvP flea is missing/disabled, use trader sell price for display and PPS
-    if selected_mode == 'pvp' and flea_price is None:
-        trader_fallback = item.get('traderSellPrice')
-        if isinstance(trader_fallback, int):
-            flea_price = trader_fallback
-    if flea_price is not None:
-        embed.add_field(name="Flea Market Price", value=f"**{flea_price:,}₽**", inline=True)
-    else:
-        embed.add_field(name="Flea Market Price", value="N/A", inline=True)
+    # Only show Flea when the selected mode actually has a flea price.
+    flea_price_raw = item.get('pvePrice') if selected_mode == 'pve' else item.get('price')
+    if flea_price_raw is not None:
+        embed.add_field(name="Flea Market Price", value=f"**{flea_price_raw:,}₽**", inline=True)
 
     trader_price = item.get('traderSellPrice')
     if trader_price is not None:
         embed.add_field(name="Trader Buying Price", value=f"**{trader_price:,}₽**", inline=True)
-    else:
-        embed.add_field(name="Trader Buying Price", value="N/A", inline=True)
 
     # Price per slot (based on selected mode flea price)
     w_raw = item.get('width')
@@ -156,25 +199,25 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
     w = to_int(w_raw)
     h = to_int(h_raw)
     slots = (w * h) if (isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0) else None
-    if flea_price is not None and slots and slots > 0:
-        pps = int(round(flea_price / slots))
+    # Use selected mode flea for PPS; in PvP, if missing, fallback to trader price just for PPS.
+    pps_price = flea_price_raw
+    if pps_price is None and selected_mode == 'pvp':
+        tf = item.get('traderSellPrice')
+        if isinstance(tf, int):
+            pps_price = tf
+    if pps_price is not None and slots and slots > 0:
+        pps = int(round(pps_price / slots))
         embed.add_field(name="Price Per Slot", value=f"{pps:,}₽", inline=True)
-    else:
-        embed.add_field(name="Price Per Slot", value="N/A", inline=True)
 
     # Highlighted Base Price (yellow accent via emoji)
     base_price = item.get('basePrice')
     if base_price is not None:
         embed.add_field(name="🟡 Base Price", value=f"**{base_price:,}₽**", inline=True)
-    else:
-        embed.add_field(name="🟡 Base Price", value="N/A", inline=True)
 
     # Secondary block
     avg_24h = item.get('avg24hPrice')
     if isinstance(avg_24h, int):
         embed.add_field(name="24 Hour Price AVG", value=f"{avg_24h:,}₽", inline=True)
-    else:
-        embed.add_field(name="24 Hour Price AVG", value="N/A", inline=True)
 
     trader_name = item.get('traderSellName') or "Unknown Trader"
     embed.add_field(name="Trader to sell to", value=trader_name, inline=True)
