@@ -23,7 +23,7 @@ def get_response(user_input: str) -> str:
     elif command == "what day is it":
         return "It's " + str(datetime.now().date()) + "!"
     elif command == "what is your name":
-        return "My name is NERD!"
+        return "My name is NERDBOT!"
     elif command == "who are you":
         return "I'm a bot!"
     elif command == "roll":
