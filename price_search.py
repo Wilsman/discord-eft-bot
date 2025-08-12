@@ -1,9 +1,15 @@
 from typing import Dict, Any, Optional
 import aiohttp
 from datetime import datetime, timezone as tz
-from fuzzywuzzy import process
 import os
 import json
+
+# Prefer fuzzywuzzy if installed; fallback to stdlib difflib
+try:
+    from fuzzywuzzy import process as fw_process  # type: ignore
+except Exception:  # ModuleNotFoundError or others
+    fw_process = None
+    import difflib
 
 
 # Cache configuration
@@ -153,8 +159,27 @@ def find_item(items_data: Dict[str, Any], search_term: str) -> Optional[Dict[str
             shortname_matches[item["shortName"].lower()] = item
 
     # Try matching against both name and shortName
-    name_match = process.extractOne(search_term.lower(), name_matches.keys())
-    shortname_match = process.extractOne(search_term.lower(), shortname_matches.keys())
+    if fw_process is not None:
+        name_match = fw_process.extractOne(search_term.lower(), name_matches.keys())
+        shortname_match = fw_process.extractOne(search_term.lower(), shortname_matches.keys())
+    else:
+        # difflib fallback: emulate (string, score) where score is 0-100
+        def best_match_dict(query: str, pool: Dict[str, Any]):
+            if not pool:
+                return None
+            choices = list(pool.keys())
+            best = None
+            best_score = -1.0
+            for choice in choices:
+                score = difflib.SequenceMatcher(a=query, b=choice).ratio()
+                if score > best_score:
+                    best_score = score
+                    best = choice
+            # Convert 0..1 to 0..100 like fuzzywuzzy
+            return (best, int(round(best_score * 100))) if best is not None else None
+
+        name_match = best_match_dict(search_term.lower(), name_matches)
+        shortname_match = best_match_dict(search_term.lower(), shortname_matches)
 
     # Compare the match scores and take the better one
     best_match = None
