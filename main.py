@@ -93,17 +93,24 @@ async def cultist(
     total_value = result.get("total_value", 0)
     total_cost = result.get("total_cost", 0)
 
-    # Build embed
+    # Build enhanced embed
     mode_label = "PvE (Flea)" if selected_mode == "pve" else "PvP (Trader)"
-    desc = (
-        f"Mode: {mode_label}\n"
-        f"Threshold: {threshold:,}₽ | Max items: {max_items}\n"
-        f"Total Value: {total_value:,}₽ | Total Cost: {total_cost:,}₽"
-    )
-    embed = discord.Embed(title="Cultist Auto-Select", description=desc, color=0x2b2d31)
+    met = total_value >= threshold
+    color = 0x2ecc71 if met else 0xe67e22  # green if met else orange
+    status = "✅ Threshold met" if met else "⚠️ Threshold not met"
+
+    embed = discord.Embed(title="🕯️ Cultist Auto-Select", description=status, color=color)
+
+    # Summary fields
+    embed.add_field(name="Mode", value=mode_label, inline=True)
+    embed.add_field(name="Threshold", value=f"{threshold:,}₽", inline=True)
+    embed.add_field(name="Max items", value=str(max_items), inline=True)
+    embed.add_field(name="Total Value", value=f"{total_value:,}₽", inline=True)
+    embed.add_field(name="Total Cost", value=f"{total_cost:,}₽", inline=True)
+
+    # Selection list (markdown; allow clickable links)
     if sel_lines:
-        # Chunk lines if too long
-        chunk = []
+        chunk: list[str] = []
         current = 0
         for line in sel_lines:
             if current + len(line) + 1 > 1000 and chunk:
@@ -114,6 +121,8 @@ async def cultist(
             current += len(line) + 1
         if chunk:
             embed.add_field(name="Selection", value="\n".join(chunk), inline=False)
+
+    embed.set_footer(text="Data via Tarkov.dev")
 
     await interaction.followup.send(embed=embed)
 

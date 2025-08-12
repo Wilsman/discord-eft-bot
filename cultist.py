@@ -37,6 +37,7 @@ def compute_cultist_selection(
             "name": it.get("name") or it.get("shortName") or "Unknown",
             "value": value,
             "cost": cost,
+            "link": it.get("link"),
         })
 
     if not candidates:
@@ -122,7 +123,8 @@ def compute_cultist_selection(
         item = candidates[idx]
         total_value += item["value"] * cnt
         total_cost += item["cost"] * cnt
-        sel_lines.append(f"x{cnt} — {item['name']} | value {item['value']:,}₽ | cost {item['cost']:,}₽")
+        name_disp = f"[{item['name']}]({item['link']})" if item.get("link") else item["name"]
+        sel_lines.append(f"x{cnt} — {name_disp} | value {item['value']:,}₽ | cost {item['cost']:,}₽")
 
     return {
         "total_value": total_value,
