@@ -68,9 +68,16 @@ async def cultist(
 
 @bot.tree.command(name="price", description="Search for item prices")
 @app_commands.describe(
-    item_name="Name of the item to search for"
+    item_name="Name of the item to search for",
+    mode="Choose PvP or PvE price data (default: PvP)",
 )
-async def price(interaction: discord.Interaction, item_name: str):
+@app_commands.choices(
+    mode=[
+        app_commands.Choice(name="PvP", value="pvp"),
+        app_commands.Choice(name="PvE", value="pve"),
+    ]
+)
+async def price(interaction: discord.Interaction, item_name: str, mode: Optional[app_commands.Choice[str]] = None):
     from price_search import fetch_items_data, find_item
     from datetime import datetime, timezone as tz
     
@@ -86,13 +93,14 @@ async def price(interaction: discord.Interaction, item_name: str):
         await interaction.followup.send(f"Could not find item matching '{item_name}'")
         return
 
-    # Parse timestamps
+    # Parse timestamps based on selected mode
     current_dt = datetime.now(tz.utc)
-    pvp_updated = item.get("updated")
-    pvp_mins: Optional[int] = None
-    if pvp_updated:
-        pvp_dt = datetime.fromisoformat(pvp_updated.replace("Z", "+00:00"))
-        pvp_mins = int((current_dt - pvp_dt).total_seconds() / 60)
+    selected_mode = (mode.value if mode else "pvp")
+    updated_iso = item.get("pveUpdated") if selected_mode == "pve" else item.get("updated")
+    last_mins: Optional[int] = None
+    if updated_iso:
+        dt_parsed = datetime.fromisoformat(updated_iso.replace("Z", "+00:00"))
+        last_mins = int((current_dt - dt_parsed).total_seconds() / 60)
     
     # Format time strings
     def format_time(mins: Optional[int]) -> str:
@@ -120,9 +128,9 @@ async def price(interaction: discord.Interaction, item_name: str):
         embed.set_thumbnail(url=thumb)
 
     # Primary price block (two-column inline fields)
-    pvp_price = item.get('price')
-    if pvp_price is not None:
-        embed.add_field(name="Flea Market Price", value=f"**{pvp_price:,}₽**", inline=True)
+    flea_price = item.get('pvePrice') if selected_mode == 'pve' else item.get('price')
+    if flea_price is not None:
+        embed.add_field(name="Flea Market Price", value=f"**{flea_price:,}₽**", inline=True)
     else:
         embed.add_field(name="Flea Market Price", value="N/A", inline=True)
 
@@ -132,12 +140,19 @@ async def price(interaction: discord.Interaction, item_name: str):
     else:
         embed.add_field(name="Trader Buying Price", value="N/A", inline=True)
 
-    # Price per slot (based on PvP flea price)
-    width = item.get('width') or 0
-    height = item.get('height') or 0
-    slots = width * height if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0 else 0
-    if pvp_price is not None and slots > 0:
-        pps = int(round(pvp_price / slots))
+    # Price per slot (based on selected mode flea price)
+    w_raw = item.get('width')
+    h_raw = item.get('height')
+    def to_int(v: Any) -> Optional[int]:
+        try:
+            return int(v) if v is not None else None
+        except Exception:
+            return None
+    w = to_int(w_raw)
+    h = to_int(h_raw)
+    slots = (w * h) if (isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0) else None
+    if flea_price is not None and slots and slots > 0:
+        pps = int(round(flea_price / slots))
         embed.add_field(name="Price Per Slot", value=f"{pps:,}₽", inline=True)
     else:
         embed.add_field(name="Price Per Slot", value="N/A", inline=True)
@@ -159,14 +174,12 @@ async def price(interaction: discord.Interaction, item_name: str):
     trader_name = item.get('traderSellName') or "Unknown Trader"
     embed.add_field(name="Trader to sell to", value=trader_name, inline=True)
 
-    # Footer: last updated and attribution
-    # Prefer PvP updated; otherwise fallback to PvE updated
-    last_mins = pvp_mins
+    # Footer: last updated and attribution (fallback to other mode if missing)
     if last_mins is None:
-        pve_updated = item.get('pveUpdated')
-        if pve_updated:
-            pve_dt = datetime.fromisoformat(pve_updated.replace("Z", "+00:00"))
-            last_mins = int((current_dt - pve_dt).total_seconds() / 60)
+        fallback_iso = item.get('updated') if selected_mode == 'pve' else item.get('pveUpdated')
+        if fallback_iso:
+            fb_dt = datetime.fromisoformat(fallback_iso.replace("Z", "+00:00"))
+            last_mins = int((current_dt - fb_dt).total_seconds() / 60)
     updated_str = f"Last Updated: {format_time(last_mins)} ago" if last_mins is not None else "Last Updated: N/A"
     embed.set_footer(text=f"{updated_str} - Data provided by Tarkov.dev")
 
