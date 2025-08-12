@@ -88,8 +88,11 @@ async def price(interaction: discord.Interaction, item_name: str):
 
     # Parse timestamps
     current_dt = datetime.now(tz.utc)
-    pvp_dt = datetime.fromisoformat(item["updated"].replace("Z", "+00:00"))
-    pvp_mins = int((current_dt - pvp_dt).total_seconds() / 60)
+    pvp_updated = item.get("updated")
+    pvp_mins: Optional[int] = None
+    if pvp_updated:
+        pvp_dt = datetime.fromisoformat(pvp_updated.replace("Z", "+00:00"))
+        pvp_mins = int((current_dt - pvp_dt).total_seconds() / 60)
     
     # Format time strings
     def format_time(mins: Optional[int]) -> str:
@@ -99,83 +102,85 @@ async def price(interaction: discord.Interaction, item_name: str):
         minutes = mins % 60
         return f"{hours}h{minutes}m" if hours > 0 else f"{minutes}m"
 
-    # Create embed
+    # Create embed (focus: Flea, Vendor, Base)
     embed = discord.Embed(
         title=item["name"],
-        description=item.get("description", "No description available"),
+        description=(item.get("shortName") or ""),
         color=0x2b2d31  # Dark theme color
     )
-    
-    # Add thumbnail if available
-    if "iconLink" in item:
-        embed.set_thumbnail(url=item["iconLink"])
-    
-    # Add PvP price field
+
+    # Flea (PvP) — most prominent
     pvp_price = item.get('price')
     if pvp_price is not None:
         embed.add_field(
-            name="💰 PvP Price",
-            value=f"{pvp_price:,}₽\nUpdated {format_time(pvp_mins)} ago",
+            name="🛒 Flea (PvP)",
+            value=f"**{pvp_price:,}₽**\nUpdated {format_time(pvp_mins)} ago",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🛒 Flea (PvP)",
+            value="Not available",
+            inline=False
+        )
+
+    # Vendor price (best sell)
+    trader_price = item.get('traderSellPrice')
+    trader_name = item.get('traderSellName', 'Unknown Trader')
+    if trader_price is not None:
+        embed.add_field(
+            name="🏪 Vendor (Sell)",
+            value=f"**{trader_price:,}₽**\n{trader_name}",
             inline=True
         )
     else:
         embed.add_field(
-            name="💰 PvP Price",
+            name="🏪 Vendor (Sell)",
             value="Not available",
             inline=True
         )
-    
-    # Add PvE price field if available
+
+    # Base price
+    base_price = item.get('basePrice')
+    if base_price is not None:
+        embed.add_field(
+            name="📦 Base Price",
+            value=f"**{base_price:,}₽**",
+            inline=True
+        )
+    else:
+        embed.add_field(
+            name="📦 Base Price",
+            value="Not available",
+            inline=True
+        )
+
+    # PvE flea and 24h average (supporting info)
     pve_price = item.get('pvePrice')
     pve_updated = item.get('pveUpdated')
     if pve_price is not None and pve_updated:
         pve_dt = datetime.fromisoformat(pve_updated.replace("Z", "+00:00"))
         pve_mins = int((current_dt - pve_dt).total_seconds() / 60)
         embed.add_field(
-            name="🤖 PvE Price",
+            name="🤖 Flea (PvE)",
             value=f"{pve_price:,}₽\nUpdated {format_time(pve_mins)} ago",
             inline=True
         )
     else:
         embed.add_field(
-            name="🤖 PvE Price",
+            name="🤖 Flea (PvE)",
             value="Not available",
             inline=True
         )
-    
-    # Add trader info if available
-    trader_price = item.get('traderSellPrice')
-    if trader_price is not None:
-        trader_info = (
-            f"{trader_price:,}₽\n"
-            f"to {item.get('traderSellName', 'Unknown Trader')}"
-        )
+
+    avg_24h = item.get('avg24hPrice')
+    if isinstance(avg_24h, int):
         embed.add_field(
-            name="🏪 Trader Sell Price",
-            value=trader_info,
+            name="📈 24h Avg",
+            value=f"{avg_24h:,}₽",
             inline=True
         )
-    else:
-        embed.add_field(
-            name="🏪 Trader Sell Price",
-            value="Not available",
-            inline=True
-        )
-    
-    # Add extra info
-    extra_info = []
-    base_price = item.get('basePrice')
-    if base_price is not None:
-        extra_info.append(f"Base Price: {base_price:,}₽")
-    if "width" in item and "height" in item:
-        extra_info.append(f"Size: {item['width']}x{item['height']}")
-    if extra_info:
-        embed.add_field(
-            name="ℹ️ Additional Info",
-            value="\n".join(extra_info),
-            inline=False
-        )
-    
+
     await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name="ai", description="Ask AI a Question")
