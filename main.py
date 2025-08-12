@@ -103,11 +103,18 @@ async def price(interaction: discord.Interaction, item_name: str):
         return f"{hours}h{minutes}m" if hours > 0 else f"{minutes}m"
 
     # Create embed header (title + link + thumbnail)
-    embed = discord.Embed(
-        title=item["name"],
-        color=0x2b2d31,
-        url=item.get("link") or discord.Embed.Empty,
-    )
+    link = item.get("link")
+    if link:
+        embed = discord.Embed(
+            title=item["name"],
+            color=0x2b2d31,
+            url=link,
+        )
+    else:
+        embed = discord.Embed(
+            title=item["name"],
+            color=0x2b2d31,
+        )
     thumb = item.get("gridImageLink")
     if thumb:
         embed.set_thumbnail(url=thumb)
