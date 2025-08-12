@@ -129,6 +129,11 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
 
     # Primary price block (two-column inline fields)
     flea_price = item.get('pvePrice') if selected_mode == 'pve' else item.get('price')
+    # PvP fallback: if PvP flea is missing/disabled, use trader sell price for display and PPS
+    if selected_mode == 'pvp' and flea_price is None:
+        trader_fallback = item.get('traderSellPrice')
+        if isinstance(trader_fallback, int):
+            flea_price = trader_fallback
     if flea_price is not None:
         embed.add_field(name="Flea Market Price", value=f"**{flea_price:,}₽**", inline=True)
     else:
