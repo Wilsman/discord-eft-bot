@@ -127,6 +127,74 @@ async def cultist(
 
     await interaction.followup.send(embed=embed)
 
+@bot.tree.command(name="bosschanges", description="Show the latest 3 boss spawn changes")
+async def bosschanges(interaction: discord.Interaction):
+    """Fetch latest boss changes and display the newest 3 in an embed."""
+    from datetime import datetime, timezone as tz
+
+    await interaction.response.defer()
+
+    url = "https://bossdata.cultistcircle.workers.dev/changes"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(f"Error fetching boss changes: HTTP {resp.status}")
+                    return
+                data = await resp.json()
+    except Exception as e:
+        await interaction.followup.send(f"Error fetching boss changes: {e}")
+        return
+
+    if not isinstance(data, list) or not data:
+        await interaction.followup.send("No boss changes found.")
+        return
+
+    # Sort by timestamp desc and take latest 3
+    changes = sorted(data, key=lambda x: x.get("timestamp", 0), reverse=True)[:3]
+
+    def fmt_ago(ts_ms: int) -> str:
+        try:
+            dt = datetime.fromtimestamp(max(0, ts_ms) / 1000, tz=tz.utc)
+            now = datetime.now(tz.utc)
+            delta = now - dt
+            total_mins = int(delta.total_seconds() // 60)
+            if total_mins < 1:
+                return "just now"
+            days = total_mins // (60 * 24)
+            hours = (total_mins // 60) % 24
+            mins = total_mins % 60
+            if days > 0:
+                return f"{days}d{hours}h"
+            if hours > 0:
+                return f"{hours}h{mins}m"
+            return f"{mins}m"
+        except Exception:
+            return "N/A"
+
+    embed = discord.Embed(
+        title="Latest Boss Changes",
+        description="Recent updates to boss spawn settings",
+        color=0x9b59b6,
+    )
+
+    for ch in changes:
+        boss = (ch.get("boss") or "Unknown").title()
+        game_mode = ch.get("game_mode") or "regular"
+        map_name = (ch.get("map") or "Unknown").title()
+        field = ch.get("field") or "field"
+        old_val = ch.get("old_value") or "?"
+        new_val = ch.get("new_value") or "?"
+        ts = ch.get("timestamp") or 0
+
+        name = f"{boss} — {map_name} ({game_mode})"
+        value = f"{field}: {old_val} → {new_val}\n{fmt_ago(int(ts))} ago"
+        embed.add_field(name=name, value=value, inline=False)
+
+    embed.set_footer(text="Source: Cultist Circle")
+
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="price", description="Search for item prices")
 @app_commands.describe(
     item_name="Name of the item to search for",
@@ -240,6 +308,48 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
             last_mins = int((current_dt - fb_dt).total_seconds() / 60)
     updated_str = f"Last Updated: {format_time(last_mins)} ago" if last_mins is not None else "Last Updated: N/A"
     embed.set_footer(text=f"{updated_str} - Data provided by Tarkov.dev")
+
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="base", description="Show item's base value")
+@app_commands.describe(
+    item_name="Name of the item to search for",
+)
+async def base(interaction: discord.Interaction, item_name: str):
+    from price_search import fetch_items_data, find_item
+
+    await interaction.response.defer()
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        await interaction.followup.send("Error: Could not fetch items data")
+        return
+
+    item = find_item(items_data, item_name)
+    if not item:
+        await interaction.followup.send(f"Could not find item matching '{item_name}'")
+        return
+
+    link = item.get("link")
+    if link:
+        embed = discord.Embed(
+            title=item["name"],
+            color=0x2b2d31,
+            url=link,
+        )
+    else:
+        embed = discord.Embed(
+            title=item["name"],
+            color=0x2b2d31,
+        )
+
+    thumb = item.get("gridImageLink")
+    if thumb:
+        embed.set_thumbnail(url=thumb)
+
+    base_price = item.get("basePrice")
+    base_val = f"**{base_price:,}₽**" if isinstance(base_price, int) else "N/A"
+    embed.add_field(name="Base Value", value=base_val, inline=False)
 
     await interaction.followup.send(embed=embed)
 
