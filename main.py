@@ -398,94 +398,40 @@ async def base(interaction: discord.Interaction, item_name: str):
 
 @bot.tree.command(name="ammo", description="Look up information about ammunition types")
 async def ammo(interaction: discord.Interaction, name: str):
-    """Look up information about ammunition types"""
+    """Look up information about ammunition types using GraphQL data"""
     await interaction.response.defer()
-    
-    ammo_info = get_ammo_info(name)
-    if ammo_info is None:
-        error_embed = discord.Embed(
-            title="Ammo Not Found",
-            description=f"No ammunition found matching '{name}'",
-            color=0xFF0000
+
+    # Import here to keep related code localized to the ammo section
+    from ammo_search import fetch_ammo_data, find_ammo, format_ammo_embed as build_ammo_embed
+
+    data = await fetch_ammo_data()
+    if not data or not data.get("ammo"):
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Ammo Data Unavailable",
+                description="Couldn't fetch ammo data. Please try again later.",
+                color=0xFF0000,
+            )
         )
-        await interaction.followup.send(embed=error_embed)
         return
-        
-    proper_name, category, damage, pen = ammo_info
-    ammo_embed = format_ammo_embed(proper_name, category, damage, pen)
-    
-    await interaction.followup.send(embed=ammo_embed)
+
+    entry = find_ammo(data, name)
+    if not entry:
+        await interaction.followup.send(
+            embed=discord.Embed(
+                title="Ammo Not Found",
+                description=f"No ammunition found matching '{name}'",
+                color=0xFF0000,
+            )
+        )
+        return
+
+    embed = build_ammo_embed(entry, data.get("fetchedAt"))
+    await interaction.followup.send(embed=embed)
 
 # ----------------------------------------
-# AMMO FUNCTIONS
+# AMMO FUNCTIONS (migrated to ammo_search.py)
 # ----------------------------------------
-from typing import Optional, Tuple, Union
-from ammo_data import AMMO_DATA
-
-def get_ammo_info(ammo_name: str) -> Optional[Tuple[str, str, Union[str, int], int]]:
-    """
-    Get category, damage and penetration values for given ammo type
-    Returns tuple of (proper_name, category, damage, penetration) or None if ammo not found
-    """
-    # Try exact match first
-    ammo_name = ammo_name.upper()
-    if ammo_name in AMMO_DATA:
-        return ammo_name, *AMMO_DATA[ammo_name]
-    
-    # Try partial matches
-    matches = [name for name in AMMO_DATA.keys() if ammo_name in name]
-    if matches:
-        return matches[0], *AMMO_DATA[matches[0]]
-    
-    return None
-
-def get_pen_color(pen: int) -> int:
-    """Get color based on penetration value"""
-    if pen >= 50:  # High pen (red)
-        return 0xFF0000
-    elif pen >= 30:  # Medium pen (orange)
-        return 0xFFA500
-    elif pen >= 20:  # Low-medium pen (yellow)
-        return 0xFFFF00
-    else:  # Low pen (green)
-        return 0x00FF00
-
-def format_ammo_embed(ammo_name: str, category: str, damage: Union[str, int], pen: int) -> discord.Embed:
-    """Format ammo information into a Discord embed"""
-    embed = discord.Embed(
-        title=ammo_name.title(),
-        color=get_pen_color(pen)
-    )
-    
-    embed.add_field(name="Category", value=category, inline=False)
-    
-    # Handle damage formatting
-    if isinstance(damage, str) and 'x' in damage:
-        pellets, dmg = damage.split('x')
-        total_damage = int(pellets) * int(dmg)
-        damage_str = f"{damage} ({total_damage} total)"
-        embed.add_field(name="Damage Per Pellet", value=dmg, inline=True)
-        embed.add_field(name="Pellet Count", value=pellets, inline=True)
-        embed.add_field(name="Total Damage", value=str(total_damage), inline=True)
-    else:
-        embed.add_field(name="Damage", value=str(damage), inline=True)
-        embed.add_field(name="", value="", inline=True)  # Empty field for alignment
-    
-    embed.add_field(name="Penetration", value=str(pen), inline=True)
-    
-    # Add footer with pen level description
-    if pen >= 50:
-        pen_desc = "High penetration - Effective against high-tier armor"
-    elif pen >= 30:
-        pen_desc = "Medium penetration - Effective against medium-tier armor"
-    elif pen >= 20:
-        pen_desc = "Low-medium penetration - Effective against low-tier armor"
-    else:
-        pen_desc = "Low penetration - Best used against unarmored targets"
-    
-    embed.set_footer(text=pen_desc)
-    
-    return embed
 
 # ----------------------------------------
 # EXISTING BOT FUNCTIONS
