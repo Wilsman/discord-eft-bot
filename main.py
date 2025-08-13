@@ -621,15 +621,7 @@ async def thresholds(interaction: discord.Interaction):
     """Display a comprehensive table of Cultist Circle value thresholds and their corresponding timings."""
     table = get_thresholds_table()
     
-    embed = discord.Embed(
-        title="🕯️ Cultist Circle Thresholds",
-        description=table,
-        color=0x9b59b6,  # purple
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
-    )
-    embed.set_footer(text="Cultist Calculator • Thresholds")
-    
-    await interaction.response.send_message(embed=embed, ephemeral=False)
+    await interaction.response.send_message(table, ephemeral=False)
 
 # ----------------------------------------
 # DISCORD BOT EVENTS
