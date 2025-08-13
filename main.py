@@ -10,7 +10,7 @@ import requests
 import ollama
 from cultist import compute_cultist_selection
 import datetime
-from cultist_help import get_cultist_help_response as cultist_help_text, build_cultist_help_embed
+from cultist_help import get_cultist_help_response as cultist_help_text, build_cultist_help_embed, get_thresholds_table
 import traceback
 from dataclasses import dataclass
 from typing import Optional
@@ -613,6 +613,21 @@ async def help(interaction: discord.Interaction, question: str):
     - "hardcore tips"
     """
     embed = build_cultist_help_embed(question)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+@bot.tree.command(name="thresholds", description="Display Cultist Circle value thresholds and timing table")
+async def thresholds(interaction: discord.Interaction):
+    """Display a comprehensive table of Cultist Circle value thresholds and their corresponding timings."""
+    table = get_thresholds_table()
+    
+    embed = discord.Embed(
+        title="🕯️ Cultist Circle Thresholds",
+        description=table,
+        color=0x9b59b6,  # purple
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
+    )
+    embed.set_footer(text="Cultist Calculator • Thresholds")
     
     await interaction.response.send_message(embed=embed, ephemeral=False)
 

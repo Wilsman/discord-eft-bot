@@ -7,6 +7,16 @@ import discord
 
 
 def get_cultist_help_response(question: str) -> str:
+    """Return a short, canned explanation to a Cultist Circle help question.
+
+    Covers thresholds, base-value math, item combos, pricing modes, and features.
+
+    Args:
+        question: Raw user query.
+
+    Returns:
+        A single-paragraph response suitable for an embed description.
+    """
     q = question.lower().strip()
 
     def in_q(*terms: str) -> bool:
@@ -15,23 +25,20 @@ def get_cultist_help_response(question: str) -> str:
     # Thresholds and durations
     if in_q("6h", "6 h", "6-hour", "six hour"):
         return (
-            "6h chance requires ≥400k base value. At ≥400k: 25% 6h, 75% 14h. "
+            "6h (quest/hideout items) requires ≥400k base value. At ≥400k: 25% 6h, 75% 14h (high tier loot). "
             "Going over 400k doesn't increase the chance."
         )
     elif in_q("14h", "14 h", "better loot"):
         return (
-            "≥350k gives a chance at 14h. At 350–399k: 12h/14h mix. "
-            "At ≥400k: 75% 14h (and 25% 6h)."
+            "≥350k gives a chance at 14h (high tier loot). "
+            "At ≥400k: 75% 14h, 25% 6h (quest/hideout items)."
         )
     elif in_q("12h", "12 h", "default"):
-        return "12h is the default. <350k is guaranteed 12h; 350–399k can give 12h or 14h."
+        return "12h (normal loot) is the default. <350k is guaranteed 12h; 350–399k can give 12h (normal) or 14h (high tier)."
 
-    # Threshold summary
+    # Threshold summary - return formatted table
     elif in_q("threshold", "thresholds", "explain thresholds"):
-        return (
-            "Thresholds: <350k → 12h. 350–399k → 12h/14h. ≥400k → 25% 6h, 75% 14h. "
-            "Over 400k doesn't improve 6h chance."
-        )
+        return get_thresholds_table()
 
     # Base value calculation
     elif in_q("base value", "multiplier", "vendor"):
@@ -139,7 +146,7 @@ def get_cultist_help_response(question: str) -> str:
     # Calculator usage
     elif in_q("calculator", "how to use", "use it", "help"):
         return (
-            "Pick up to 5 items and check total base value: ≥350k for 14h chance; ≥400k for 25% 6h / 75% 14h. "
+            "Pick up to 5 items and check total base value: ≥350k for 14h (high tier) chance; ≥400k for 25% 6h (quest/hideout) / 75% 14h (high tier). "
             "Base value uses vendor price ÷ multiplier."
         )
 
@@ -151,6 +158,7 @@ def get_cultist_help_response(question: str) -> str:
 
 
 def _pick_color(question: str) -> int:
+    """Pick an embed color based on the question topic cluster."""
     q = question.lower()
     if any(k in q for k in ("6h", "6-hour", "14h", "12h")):
         return 0x9b59b6  # purple
@@ -161,8 +169,34 @@ def _pick_color(question: str) -> int:
     return 0x2ecc71  # green default
 
 
+def get_thresholds_table() -> str:
+    """Return a formatted markdown table showing cultist circle thresholds."""
+    return (
+        "```\n"
+        "┌─────────────────┬──────────┬─────────────────────────────────────────┐\n"
+        "│ Range (Value)   │ Time     │ Results                                 │\n"
+        "├─────────────────┼──────────┼─────────────────────────────────────────┤\n"
+        "│ 0 - 10,000      │ 2 hours  │ Normal value item                       │\n"
+        "│ 10,001 - 25,000 │ 3 hours  │ Normal value item                       │\n"
+        "│ 25,001 - 50,000 │ 4 hours  │ Normal value item                       │\n"
+        "│ 50,001 - 100,000│ 5 hours  │ Normal value item                       │\n"
+        "│ 100,001 - 200,000│ 8 hours │ Normal value item                       │\n"
+        "│ 200,001 - 350,000│ 12 hours│ Normal value item                       │\n"
+        "│ >= 350,001      │ 14 hours │ High value item                         │\n"
+        "│ High value item │ 14 hours │ High value item (14h) or 25% chance of │\n"
+        "│ >= 400,000      │ or 25%   │ Quest/Hideout items (6h)                │\n"
+        "│                 │ chance   │                                         │\n"
+        "│                 │ of 6h    │                                         │\n"
+        "└─────────────────┴──────────┴─────────────────────────────────────────┘\n"
+        "```"
+    )
+
+
 def build_cultist_help_embed(question: str) -> discord.Embed:
-    """Return a rich Discord embed answering the user's help question."""
+    """Return a rich Discord embed answering the user's help question.
+
+    Includes the original question and a loot tier legend for clarity.
+    """
     answer = get_cultist_help_response(question)
     color = _pick_color(question)
 
@@ -173,5 +207,10 @@ def build_cultist_help_embed(question: str) -> discord.Embed:
         timestamp=datetime.datetime.now(datetime.timezone.utc),
     )
     embed.add_field(name="Question", value=f"“{question}”", inline=False)
+    embed.add_field(
+        name="Loot tiers",
+        value="- 12h — normal loot\n- 14h — high tier loot\n- 6h — quest/hideout items",
+        inline=False,
+    )
     embed.set_footer(text="Cultist Calculator • Help")
     return embed
