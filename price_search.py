@@ -54,6 +54,16 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
           }
           priceRUB
         }
+        buyFor {
+          priceRUB
+          vendor {
+            normalizedName
+            ... on TraderOffer {
+              minTraderLevel
+              buyLimit
+            }
+          }
+        }
         updated
       }
       pveItems: items(gameMode: pve) {
@@ -72,6 +82,16 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
             name
           }
           priceRUB
+        }
+        buyFor {
+          priceRUB
+          vendor {
+            normalizedName
+            ... on TraderOffer {
+              minTraderLevel
+              buyLimit
+            }
+          }
         }
         updated
       }
@@ -102,6 +122,36 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
                 "traderSellName": (best.get("vendor") or {}).get("name")
             }
 
+        def best_trader_buy(buy_for: Optional[list]) -> Optional[Dict[str, Any]]:
+            """Pick the cheapest trader offer from buyFor (exclude flea/other offers)."""
+            if not buy_for:
+                return None
+            candidates = []
+            for bf in buy_for:
+                vendor = (bf.get("vendor") or {})
+                price = bf.get("priceRUB")
+                # Only consider trader offers (fragment provides these fields)
+                if not isinstance(price, int) or price <= 0:
+                    continue
+                if "minTraderLevel" not in vendor and "buyLimit" not in vendor:
+                    # Likely non-trader (e.g., flea). Skip for PvP trader pricing.
+                    continue
+                candidates.append({
+                    "price": price,
+                    "vendor": vendor.get("normalizedName"),
+                    "minLevel": vendor.get("minTraderLevel"),
+                    "buyLimit": vendor.get("buyLimit"),
+                })
+            if not candidates:
+                return None
+            best_b = min(candidates, key=lambda c: c["price"])  # cheapest trader buy price
+            return {
+                "traderBuyPrice": best_b["price"],
+                "traderBuyVendor": best_b["vendor"],
+                "traderMinLevel": best_b["minLevel"],
+                "traderBuyLimit": best_b["buyLimit"],
+            }
+
         for it in pvp_items:
             entry: Dict[str, Any] = {
                 "id": it.get("id"),
@@ -123,6 +173,9 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
             bv = best_vendor(it.get("sellFor"))
             if bv:
                 entry.update(bv)
+            bt = best_trader_buy(it.get("buyFor"))
+            if bt:
+                entry.update(bt)
             by_id[it.get("id")] = entry
 
         for it in pve_items:

@@ -71,7 +71,7 @@ async def cultist(
     randomize: bool = False,
 ):
     """Select up to max_items whose base value sum ≥ threshold minimizing total cost.
-    Repetition allowed. PvP uses trader sell price for cost (flea closed), PvE uses flea.
+    Repetition allowed. PvP uses trader buy price (buyFor) with buyLimit, PvE uses flea.
     """
     await interaction.response.defer()
     from price_search import fetch_items_data
