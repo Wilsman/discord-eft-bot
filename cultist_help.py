@@ -167,10 +167,10 @@ def build_cultist_help_embed(question: str) -> discord.Embed:
     color = _pick_color(question)
 
     embed = discord.Embed(
-        title="🕯️ Scav Case Help",
+        title="🕯️ Cultist Circle Help",
         description=answer,
         color=color,
-        timestamp=datetime.datetime.utcnow(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
     )
     embed.add_field(name="Question", value=f"“{question}”", inline=False)
     embed.set_footer(text="Cultist Calculator • Help")

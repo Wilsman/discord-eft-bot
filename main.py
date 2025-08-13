@@ -542,10 +542,10 @@ def get_cultist_help_response(question: str) -> str:
     # Delegates to implementation in cultist_help.py (logic moved out of main)
     return cultist_help_text(question)
 
-@bot.tree.command(name="help", description="Get information about Scav Case timings and thresholds")
+@bot.tree.command(name="help", description="Get information about Cultist Circle timings and thresholds")
 async def help(interaction: discord.Interaction, question: str):
     """
-    Get information about Scav Case timings and thresholds
+    Get information about Cultist Circle timings and thresholds
     
     Example questions:
     - "6h chance"
