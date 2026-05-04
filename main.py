@@ -456,6 +456,49 @@ async def circlevalue(interaction: discord.Interaction, item_name: str):
 
     await interaction.followup.send(embed=embed)
 
+
+@circlevalue.autocomplete("item_name")
+async def circlevalue_item_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    from price_search import fetch_items_data, find_item_matches
+
+    if len(current.strip()) < 2:
+        return []
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        return []
+
+    def fmt_money(value: Any) -> str:
+        return f"{value:,}" if isinstance(value, int) and value > 0 else "N/A"
+
+    def fit_choice_name(value: str) -> str:
+        return value if len(value) <= 100 else value[:97] + "..."
+
+    choices: List[app_commands.Choice[str]] = []
+    seen_values = set()
+    matches = [
+        item for item in find_item_matches(items_data, current, limit=12)
+        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
+    ]
+    for item in matches:
+        item_name = item.get("name")
+        if not item_name or len(item_name) > 100 or item_name in seen_values:
+            continue
+        seen_values.add(item_name)
+        label = (
+            f"{item_name} | Base {fmt_money(item.get('basePrice'))} | "
+            f"PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
+        )
+        choices.append(app_commands.Choice(name=fit_choice_name(label), value=item_name))
+        if len(choices) >= 10:
+            break
+
+    return choices
+
+
 @bot.tree.command(name="circlecheck", description="Check a Cultist Circle combo's total base value")
 @app_commands.describe(
     combo="Example: 3x Ratchet Wrench & 1x Flash Drive",
