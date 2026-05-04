@@ -146,14 +146,14 @@ async def cultist(
 
     await interaction.followup.send(embed=embed)
 
-@bot.tree.command(name="bosschanges", description="Show the latest 3 boss spawn changes")
+@bot.tree.command(name="bosschanges", description="Show today's latest boss spawn changes")
 async def bosschanges(interaction: discord.Interaction):
-    """Fetch latest boss changes and display the newest 3 in an embed."""
+    """Fetch recent boss changes and display today's latest batch, or the newest batch if today is empty."""
     from datetime import datetime, timezone as tz
 
     await interaction.response.defer()
 
-    url = "https://bossdata.cultistcircle.workers.dev/changes"
+    url = "https://bossdata.cultistcircle.workers.dev/api/changes?limit=100"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
@@ -169,13 +169,40 @@ async def bosschanges(interaction: discord.Interaction):
         await interaction.followup.send("No boss changes found.")
         return
 
-    # Sort by timestamp desc and take latest 3
-    changes = sorted(data, key=lambda x: x.get("timestamp", 0), reverse=True)[:3]
-
-    def fmt_ago(ts_ms: int) -> str:
+    def parse_ts(change: Dict[str, Any]) -> int:
         try:
-            dt = datetime.fromtimestamp(max(0, ts_ms) / 1000, tz=tz.utc)
-            now = datetime.now(tz.utc)
+            return int(change.get("timestamp") or 0)
+        except Exception:
+            return 0
+
+    sorted_changes = sorted(data, key=parse_ts, reverse=True)
+    now = datetime.now(tz.utc)
+    today = now.date()
+
+    dated_changes = []
+    for change in sorted_changes:
+        ts = parse_ts(change)
+        if ts <= 0:
+            continue
+        dt = datetime.fromtimestamp(ts / 1000, tz=tz.utc)
+        dated_changes.append((dt, change))
+
+    todays_changes = [(dt, ch) for dt, ch in dated_changes if dt.date() == today]
+    if todays_changes:
+        selected = todays_changes
+        title = "Today's Boss Changes"
+        description = "Latest boss spawn updates today."
+    else:
+        if not dated_changes:
+            await interaction.followup.send("No dated boss changes found.")
+            return
+        latest_date = dated_changes[0][0].date()
+        selected = [(dt, ch) for dt, ch in dated_changes if dt.date() == latest_date]
+        title = "Latest Boss Changes"
+        description = f"No changes today. Latest batch: {dated_changes[0][0].strftime('%d %b %Y')} UTC."
+
+    def fmt_ago(dt: datetime) -> str:
+        try:
             delta = now - dt
             total_mins = int(delta.total_seconds() // 60)
             if total_mins < 1:
@@ -191,26 +218,54 @@ async def bosschanges(interaction: discord.Interaction):
         except Exception:
             return "N/A"
 
+    def pretty_token(value: Any) -> str:
+        raw = str(value or "Unknown")
+        labels = {
+            "regular": "PvP",
+            "pve": "PvE",
+            "arenafighter": "Arena Fighter",
+            "bossAdded": "added",
+            "bossRemoved": "removed",
+            "spawnChance": "spawn",
+        }
+        if raw in labels:
+            return labels[raw]
+        return raw.replace("_", " ").title()
+
+    def format_change(change: Dict[str, Any]) -> str:
+        field = change.get("field")
+        boss = pretty_token(change.get("boss"))
+        old_val = change.get("old_value") or "?"
+        new_val = change.get("new_value") or "?"
+        if field == "bossAdded":
+            return f"{boss} added ({new_val})"
+        if field == "bossRemoved":
+            return f"{boss} removed"
+        if field == "spawnChance":
+            return f"{boss} {old_val} -> {new_val}"
+        return f"{boss} {pretty_token(field)}: {old_val} -> {new_val}"
+
+    grouped: Dict[str, List[str]] = {}
+    latest_dt = selected[0][0]
+    for dt, change in selected[:12]:
+        key = f"{pretty_token(change.get('map'))} ({pretty_token(change.get('game_mode'))})"
+        grouped.setdefault(key, []).append(format_change(change))
+        if dt > latest_dt:
+            latest_dt = dt
+
     embed = discord.Embed(
-        title="Latest Boss Changes",
-        description="Recent updates to boss spawn settings",
+        title=title,
+        description=description,
         color=0x9b59b6,
     )
 
-    for ch in changes:
-        boss = (ch.get("boss") or "Unknown").title()
-        game_mode = ch.get("game_mode") or "regular"
-        map_name = (ch.get("map") or "Unknown").title()
-        field = ch.get("field") or "field"
-        old_val = ch.get("old_value") or "?"
-        new_val = ch.get("new_value") or "?"
-        ts = ch.get("timestamp") or 0
+    for key, lines in list(grouped.items())[:6]:
+        embed.add_field(name=key, value="\n".join(lines[:4]), inline=False)
 
-        name = f"{boss} — {map_name} ({game_mode})"
-        value = f"{field}: {old_val} → {new_val}\n{fmt_ago(int(ts))} ago"
-        embed.add_field(name=name, value=value, inline=False)
-
-    embed.set_footer(text="Source: Cultist Circle")
+    shown = sum(len(lines[:4]) for lines in list(grouped.values())[:6])
+    total = len(selected)
+    suffix = f"Showing {shown}/{total} changes" if total > shown else f"{total} change(s)"
+    embed.set_footer(text=f"Source: Cultist Circle • {fmt_ago(latest_dt)} ago • {suffix}")
 
     await interaction.followup.send(embed=embed)
 
