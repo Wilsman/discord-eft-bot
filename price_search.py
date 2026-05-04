@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import aiohttp
 from datetime import datetime, timezone as tz
 import os
@@ -265,6 +265,76 @@ def find_item(items_data: Dict[str, Any], search_term: str) -> Optional[Dict[str
             best_match = shortname_matches[shortname_match[0]]
 
     return best_match
+
+
+def find_item_matches(items_data: Dict[str, Any], search_term: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """Return plausible item matches without collapsing ambiguous short-name results."""
+    if not items_data or "items" not in items_data:
+        return []
+
+    query = search_term.lower().strip()
+    if not query:
+        return []
+
+    scored: Dict[str, Dict[str, Any]] = {}
+
+    def item_key(item: Dict[str, Any]) -> str:
+        return str(item.get("id") or item.get("name") or id(item))
+
+    def add_score(item: Dict[str, Any], score: int) -> None:
+        key = item_key(item)
+        current = scored.get(key)
+        if current is None or score > current["score"]:
+            scored[key] = {"item": item, "score": score}
+
+    for item in items_data["items"]:
+        name = str(item.get("name") or "").lower()
+        short_name = str(item.get("shortName") or "").lower()
+
+        if name == query:
+            add_score(item, 120)
+            continue
+        if short_name == query:
+            add_score(item, 105)
+            continue
+        if query in name:
+            add_score(item, 95)
+        if short_name and query in short_name:
+            add_score(item, 90)
+
+    if fw_process is not None:
+        choices = {}
+        for item in items_data["items"]:
+            name = item.get("name")
+            short_name = item.get("shortName")
+            if name:
+                choices[str(name).lower()] = item
+            if short_name:
+                choices[str(short_name).lower()] = item
+        for choice, score in fw_process.extract(query, choices.keys(), limit=max(limit * 4, 12)):
+            if score >= 80:
+                add_score(choices[choice], int(score))
+    else:
+        for item in items_data["items"]:
+            for value in (item.get("name"), item.get("shortName")):
+                if not value:
+                    continue
+                score = int(round(difflib.SequenceMatcher(a=query, b=str(value).lower()).ratio() * 100))
+                if score >= 80:
+                    add_score(item, score)
+
+    matches = sorted(scored.values(), key=lambda entry: (-entry["score"], str(entry["item"].get("name") or "")))
+    tokens = [token for token in query.split() if token]
+    if len(tokens) > 1:
+        token_matches = []
+        for entry in matches:
+            item = entry["item"]
+            haystack = f"{item.get('name') or ''} {item.get('shortName') or ''}".lower()
+            if all(token in haystack for token in tokens):
+                token_matches.append(entry)
+        if token_matches:
+            matches = token_matches
+    return [entry["item"] for entry in matches[:limit]]
 
 
 def format_price_response(item: Dict[str, Any]) -> str:

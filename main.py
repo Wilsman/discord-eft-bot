@@ -461,7 +461,7 @@ async def circlevalue(interaction: discord.Interaction, item_name: str):
     combo="Example: 3x Ratchet Wrench & 1x Flash Drive",
 )
 async def circlecheck(interaction: discord.Interaction, combo: str):
-    from price_search import fetch_items_data, find_item
+    from price_search import fetch_items_data, find_item_matches
 
     await interaction.response.defer()
 
@@ -497,6 +497,7 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
 
     rows: List[Dict[str, Any]] = []
     missing: List[str] = []
+    ambiguous: List[Dict[str, Any]] = []
     total_base = 0
     total_pvp_cost = 0
     total_pve_cost = 0
@@ -504,9 +505,19 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
     has_pve_cost = True
 
     for entry in parsed_items:
-        item = find_item(items_data, entry["name"])
-        if not item:
+        matches = [
+            item for item in find_item_matches(items_data, entry["name"], limit=10)
+            if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
+        ][:5]
+        if not matches:
             missing.append(entry["name"])
+            continue
+        item = matches[0]
+        query_lower = entry["name"].lower().strip()
+        top_name = str(item.get("name") or "").lower()
+        exact_full_match = top_name == query_lower
+        if len(matches) > 1 and not exact_full_match:
+            ambiguous.append({"query": entry["name"], "matches": matches[:5]})
             continue
 
         quantity = entry["quantity"]
@@ -541,6 +552,30 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
 
     if missing:
         await interaction.followup.send(f"Could not match: {', '.join(missing)}")
+        return
+
+    if ambiguous:
+        def fmt_money(value: Any) -> str:
+            return f"{value:,}₽" if isinstance(value, int) and value > 0 else "N/A"
+
+        embed = discord.Embed(
+            title="Multiple Item Matches",
+            description="Use the full item name in your combo so I don't pick the wrong one.",
+            color=0xf1c40f,
+        )
+        for entry in ambiguous[:3]:
+            lines = []
+            for index, item in enumerate(entry["matches"], start=1):
+                name = item.get("name") or "Unknown"
+                short_name = item.get("shortName")
+                label = f"{name} ({short_name})" if short_name and short_name != name else name
+                lines.append(
+                    f"{index}. {label}\n"
+                    f"Base {fmt_money(item.get('basePrice'))} | PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
+                )
+            embed.add_field(name=f"'{entry['query']}' could mean:", value="\n".join(lines), inline=False)
+        embed.set_footer(text="Example: 3x Ratchet Wrench & 1x Secure Flash drive")
+        await interaction.followup.send(embed=embed)
         return
 
     if not rows:
