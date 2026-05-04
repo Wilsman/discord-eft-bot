@@ -222,6 +222,206 @@ async def circlecheap(
 
     await interaction.followup.send(embed=embed)
 
+@bot.tree.command(name="circleown", description="Find cheap filler items for a Cultist Circle combo you already started")
+@app_commands.describe(
+    item_name="Item you already own",
+    quantity="How many of that item you own",
+    target="Target Cultist Circle threshold",
+    mode="Cost source for filler: PvP trader or PvE flea",
+)
+@app_commands.choices(
+    target=[
+        app_commands.Choice(name="350k - 12h/14h chance", value=350000),
+        app_commands.Choice(name="400k - 14h/6h pool", value=400000),
+    ],
+    mode=[
+        app_commands.Choice(name="PvP trader", value="pvp"),
+        app_commands.Choice(name="PvE flea", value="pve"),
+    ],
+)
+async def circleown(
+    interaction: discord.Interaction,
+    item_name: str,
+    quantity: int,
+    target: app_commands.Choice[int],
+    mode: Optional[app_commands.Choice[str]] = None,
+):
+    from price_search import fetch_items_data, find_item_matches
+
+    await interaction.response.defer()
+
+    if quantity <= 0:
+        await interaction.followup.send("Quantity must be at least 1.")
+        return
+    if quantity > 5:
+        await interaction.followup.send("Cultist Circle accepts up to 5 items.")
+        return
+
+    selected_mode = mode.value if mode else "pvp"
+    threshold = target.value
+    items_data = await fetch_items_data()
+    if not items_data:
+        await interaction.followup.send("Error: Could not fetch items data")
+        return
+
+    matches = [
+        item for item in find_item_matches(items_data, item_name, limit=10)
+        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
+    ][:5]
+    if not matches:
+        await interaction.followup.send(f"Could not match '{item_name}'.")
+        return
+
+    owned_item = matches[0]
+    query_lower = item_name.lower().strip()
+    exact_full_match = str(owned_item.get("name") or "").lower() == query_lower
+    if len(matches) > 1 and not exact_full_match:
+        def fmt_money(value: Any) -> str:
+            return f"{value:,}₽" if isinstance(value, int) and value > 0 else "N/A"
+
+        embed = discord.Embed(
+            title="Multiple Item Matches",
+            description="Use the full item name so I don't pin the wrong item.",
+            color=0xf1c40f,
+        )
+        lines = []
+        for index, item in enumerate(matches, start=1):
+            name = item.get("name") or "Unknown"
+            short_name = item.get("shortName")
+            label = f"{name} ({short_name})" if short_name and short_name != name else name
+            lines.append(
+                f"{index}. {label}\n"
+                f"Base {fmt_money(item.get('basePrice'))} | PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
+            )
+        embed.add_field(name=f"'{item_name}' could mean:", value="\n".join(lines), inline=False)
+        await interaction.followup.send(embed=embed)
+        return
+
+    owned_base_each = owned_item.get("basePrice")
+    owned_base_total = owned_base_each * quantity
+    remaining_slots = 5 - quantity
+    remaining_value = max(0, threshold - owned_base_total)
+    mode_label = "PvE flea" if selected_mode == "pve" else "PvP trader"
+
+    def item_cost(item: Dict[str, Any]) -> Optional[int]:
+        key = "pvePrice" if selected_mode == "pve" else "traderBuyPrice"
+        value = item.get(key)
+        return value if isinstance(value, int) and value > 0 else None
+
+    owned_cost_each = item_cost(owned_item)
+    owned_cost_total = owned_cost_each * quantity if owned_cost_each else None
+
+    filler_result: Optional[Dict[str, Any]] = None
+    if remaining_value > 0 and remaining_slots > 0:
+        try:
+            filler_result = compute_cultist_selection(
+                items_data=items_data,
+                threshold=remaining_value,
+                max_items=remaining_slots,
+                mode=selected_mode,
+                randomize=False,
+            )
+            if filler_result.get("total_value", 0) < remaining_value:
+                filler_result = compute_cultist_selection(
+                    items_data=items_data,
+                    threshold=remaining_value + 2_500,
+                    max_items=remaining_slots,
+                    mode=selected_mode,
+                    randomize=False,
+                )
+        except Exception:
+            filler_result = None
+
+    filler_value = filler_result.get("total_value", 0) if filler_result else 0
+    filler_cost = filler_result.get("total_cost", 0) if filler_result else 0
+    filler_slots = 0
+    if filler_result:
+        for line in filler_result.get("sel_lines", []):
+            match = re.match(r"^x(\d+)", str(line))
+            filler_slots += int(match.group(1)) if match else 1
+    final_base = owned_base_total + filler_value
+    final_cost = filler_cost + owned_cost_total if owned_cost_total is not None else filler_cost
+
+    embed = discord.Embed(
+        title="Cultist Circle Owned Item Helper",
+        description=f"Target: **{threshold:,}₽** ({get_circle_timer_label(threshold)})",
+        color=0x2ecc71 if final_base >= threshold else 0xe67e22,
+    )
+    owned_name = owned_item.get("name") or item_name
+    owned_link = owned_item.get("link")
+    owned_label = f"[{owned_name}]({owned_link})" if owned_link else owned_name
+    embed.add_field(
+        name="Pinned Item",
+        value=(
+            f"{quantity}x {owned_label}\n"
+            f"Base: {owned_base_each:,}₽ each | {owned_base_total:,}₽ total"
+        ),
+        inline=False,
+    )
+    embed.add_field(name="Mode", value=mode_label, inline=True)
+    embed.add_field(name="Remaining Need", value=f"{remaining_value:,}₽", inline=True)
+    embed.add_field(name="Final Base", value=f"{final_base:,}₽", inline=True)
+    embed.add_field(name="Estimated Cost", value=f"{final_cost:,}₽", inline=True)
+    embed.add_field(name="Slots", value=f"{quantity + filler_slots}/5", inline=True)
+
+    if remaining_value <= 0:
+        embed.add_field(name="Filler Needed", value="None. Your pinned item(s) already hit the target.", inline=False)
+    elif remaining_slots <= 0:
+        embed.add_field(name="Filler Needed", value="No slots left, and the pinned item(s) do not hit the target.", inline=False)
+    elif filler_result and filler_result.get("sel_lines"):
+        cleaned_lines = []
+        for line in filler_result["sel_lines"]:
+            cleaned_lines.append(line.replace(" — ", " ").replace(" | ", "\n"))
+        embed.add_field(name="Cheapest Filler", value="\n\n".join(cleaned_lines[:5]), inline=False)
+    else:
+        embed.add_field(name="Cheapest Filler", value="No valid filler combo found for the remaining slots.", inline=False)
+
+    embed.set_footer(text="Pinned item plus optimized filler. PvP uses trader-buy cost; PvE uses flea cost.")
+
+    await interaction.followup.send(embed=embed)
+
+
+@circleown.autocomplete("item_name")
+async def circleown_item_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    from price_search import fetch_items_data, find_item_matches
+
+    if len(current.strip()) < 2:
+        return []
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        return []
+
+    def fmt_money(value: Any) -> str:
+        return f"{value:,}" if isinstance(value, int) and value > 0 else "N/A"
+
+    choices: List[app_commands.Choice[str]] = []
+    seen_values = set()
+    matches = [
+        item for item in find_item_matches(items_data, current, limit=12)
+        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
+    ]
+    for item in matches:
+        matched_name = item.get("name")
+        if not matched_name or len(matched_name) > 100 or matched_name in seen_values:
+            continue
+        seen_values.add(matched_name)
+        label = (
+            f"{matched_name} | Base {fmt_money(item.get('basePrice'))} | "
+            f"PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
+        )
+        if len(label) > 100:
+            label = label[:97] + "..."
+        choices.append(app_commands.Choice(name=label, value=matched_name))
+        if len(choices) >= 10:
+            break
+
+    return choices
+
+
 @bot.tree.command(name="bosschanges", description="Show today's latest boss spawn changes")
 async def bosschanges(interaction: discord.Interaction):
     """Fetch recent boss changes and display today's latest batch, or the newest batch if today is empty."""
