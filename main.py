@@ -146,6 +146,82 @@ async def cultist(
 
     await interaction.followup.send(embed=embed)
 
+@bot.tree.command(name="circlecheap", description="Find the cheapest current combo for a Cultist Circle target")
+@app_commands.describe(
+    target="Target Cultist Circle threshold",
+    mode="Cost source: PvP trader or PvE flea",
+)
+@app_commands.choices(
+    target=[
+        app_commands.Choice(name="350k - 12h/14h chance", value=350000),
+        app_commands.Choice(name="400k - 14h/6h pool", value=400000),
+    ],
+    mode=[
+        app_commands.Choice(name="PvP trader", value="pvp"),
+        app_commands.Choice(name="PvE flea", value="pve"),
+    ],
+)
+async def circlecheap(
+    interaction: discord.Interaction,
+    target: app_commands.Choice[int],
+    mode: Optional[app_commands.Choice[str]] = None,
+):
+    from price_search import fetch_items_data
+
+    await interaction.response.defer()
+
+    selected_mode = mode.value if mode else "pvp"
+    threshold = target.value
+    items_data = await fetch_items_data()
+    try:
+        result = compute_cultist_selection(
+            items_data=items_data,
+            threshold=threshold,
+            max_items=5,
+            mode=selected_mode,
+            randomize=False,
+        )
+        if result.get("total_value", 0) < threshold:
+            result = compute_cultist_selection(
+                items_data=items_data,
+                threshold=threshold + 2_500,
+                max_items=5,
+                mode=selected_mode,
+                randomize=False,
+            )
+    except Exception as e:
+        await interaction.followup.send(f"Error: {e}")
+        return
+
+    total_value = result.get("total_value", 0)
+    total_cost = result.get("total_cost", 0)
+    sel_lines = result.get("sel_lines", [])
+    slot_count = 0
+    for line in sel_lines:
+        match = re.match(r"^x(\d+)", str(line))
+        slot_count += int(match.group(1)) if match else 1
+    mode_label = "PvE flea" if selected_mode == "pve" else "PvP trader"
+
+    embed = discord.Embed(
+        title="Cheapest Cultist Circle Combo",
+        description=f"Target: **{threshold:,}₽** ({get_circle_timer_label(threshold)})",
+        color=0x2ecc71 if total_value >= threshold else 0xe67e22,
+    )
+    embed.add_field(name="Mode", value=mode_label, inline=True)
+    embed.add_field(name="Total Base", value=f"{total_value:,}₽", inline=True)
+    embed.add_field(name="Total Cost", value=f"{total_cost:,}₽", inline=True)
+    embed.add_field(name="Slots", value=f"{slot_count}/5", inline=True)
+
+    if sel_lines:
+        cleaned_lines = []
+        for line in sel_lines:
+            cleaned_lines.append(line.replace(" — ", " ").replace(" | ", "\n"))
+        embed.add_field(name="Combo", value="\n\n".join(cleaned_lines[:5]), inline=False)
+
+    embed.set_footer(text="Optimized with current Tarkov.dev data. PvP uses trader-buy cost; PvE uses flea cost.")
+
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="bosschanges", description="Show today's latest boss spawn changes")
 async def bosschanges(interaction: discord.Interaction):
     """Fetch recent boss changes and display today's latest batch, or the newest batch if today is empty."""
