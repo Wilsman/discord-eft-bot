@@ -311,6 +311,100 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
 
     await interaction.followup.send(embed=embed)
 
+@bot.tree.command(name="circlevalue", description="Show one item's Cultist Circle value efficiency")
+@app_commands.describe(
+    item_name="Name of the item to check",
+)
+async def circlevalue(interaction: discord.Interaction, item_name: str):
+    from math import ceil
+    from price_search import fetch_items_data, find_item
+
+    await interaction.response.defer()
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        await interaction.followup.send("Error: Could not fetch items data")
+        return
+
+    item = find_item(items_data, item_name)
+    if not item:
+        await interaction.followup.send(f"Could not find item matching '{item_name}'")
+        return
+
+    base_value = item.get("basePrice")
+    if not isinstance(base_value, int) or base_value <= 0:
+        await interaction.followup.send(f"Could not find a valid base value for '{item_name}'")
+        return
+
+    link = item.get("link")
+    embed = discord.Embed(
+        title=item.get("name") or item_name,
+        color=0x8e44ad,
+        url=link if link else None,
+    )
+
+    thumb = item.get("gridImageLink")
+    if thumb:
+        embed.set_thumbnail(url=thumb)
+
+    def fmt_money(value: Any) -> str:
+        return f"{value:,}₽" if isinstance(value, int) and value > 0 else "N/A"
+
+    def fmt_efficiency(cost: Any) -> str:
+        if not isinstance(cost, int) or cost <= 0:
+            return "N/A"
+        return f"{base_value / cost:.2f} base/₽"
+
+    def timer_label(total: int) -> str:
+        if total >= 400_000:
+            return "14h / 6h"
+        if total >= 350_000:
+            return "12h / 14h"
+        if total >= 200_000:
+            return "12h"
+        if total >= 100_000:
+            return "8h"
+        if total >= 50_000:
+            return "5h"
+        if total >= 25_000:
+            return "4h"
+        if total >= 10_000:
+            return "3h"
+        return "2h"
+
+    pvp_cost = item.get("traderBuyPrice")
+    pve_cost = item.get("pvePrice")
+    pvp_vendor = item.get("traderBuyVendor")
+    pvp_level = item.get("traderMinLevel")
+    vendor_label = ""
+    if pvp_vendor:
+        level = f" L{pvp_level}" if isinstance(pvp_level, int) else ""
+        vendor_label = f"\n{pvp_vendor}{level}"
+
+    embed.add_field(name="Base Value", value=f"**{base_value:,}₽**", inline=True)
+    embed.add_field(name="PvP Trader Cost", value=f"{fmt_money(pvp_cost)}{vendor_label}", inline=True)
+    embed.add_field(name="PvE Flea Cost", value=fmt_money(pve_cost), inline=True)
+    embed.add_field(name="PvP Efficiency", value=fmt_efficiency(pvp_cost), inline=True)
+    embed.add_field(name="PvE Efficiency", value=fmt_efficiency(pve_cost), inline=True)
+
+    copies_350 = ceil(350_000 / base_value)
+    copies_400 = ceil(400_000 / base_value)
+    target_lines = [
+        f"350k: {'yes' if copies_350 <= 5 else 'no'} ({copies_350}x needed)",
+        f"400k: {'yes' if copies_400 <= 5 else 'no'} ({copies_400}x needed)",
+    ]
+    embed.add_field(name="Can Reach Alone", value="\n".join(target_lines), inline=False)
+
+    copy_lines = []
+    for count in range(1, 6):
+        total = base_value * count
+        copy_lines.append(f"{count}x: {total:,}₽ - {timer_label(total)}")
+    embed.add_field(name="1-5 Copies", value="\n".join(copy_lines), inline=False)
+
+    embed.set_footer(text="Base value math via Tarkov.dev. Weapons/durability may have special Circle behavior.")
+
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="base", description="Show item's base value")
 @app_commands.describe(
     item_name="Name of the item to search for",
