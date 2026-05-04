@@ -463,7 +463,7 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
         line_base = base_value * quantity
         total_base += line_base
 
-        pvp_cost = item.get("traderBuyPrice")
+        pvp_cost = item.get("price")
         if isinstance(pvp_cost, int) and pvp_cost > 0:
             total_pvp_cost += pvp_cost * quantity
         else:
@@ -520,7 +520,7 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
     embed.add_field(name="Thresholds", value="\n".join(threshold_lines), inline=True)
 
     cost_lines = [
-        f"PvP trader: {total_pvp_cost:,}₽" if has_pvp_cost else "PvP trader: N/A",
+        f"PvP flea: {total_pvp_cost:,}₽" if has_pvp_cost else "PvP flea: N/A",
         f"PvE flea: {total_pve_cost:,}₽" if has_pve_cost else "PvE flea: N/A",
     ]
     embed.add_field(name="Total Cost", value="\n".join(cost_lines), inline=True)
