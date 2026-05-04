@@ -8,6 +8,7 @@ import aiohttp
 import json
 import requests
 import ollama
+import re
 from cultist import compute_cultist_selection
 import datetime
 from cultist_help import get_cultist_help_response as cultist_help_text, build_cultist_help_embed, get_thresholds_table
@@ -43,6 +44,24 @@ OLLAMA_MODEL = "llama3.1:latest"  # Adjust to your local Ollama model
 class ChatResponse:
     content: str
     error: Optional[str] = None
+
+
+def get_circle_timer_label(total: int) -> str:
+    if total >= 400_000:
+        return "14h / 6h"
+    if total >= 350_000:
+        return "12h / 14h"
+    if total >= 200_000:
+        return "12h"
+    if total >= 100_000:
+        return "8h"
+    if total >= 50_000:
+        return "5h"
+    if total >= 25_000:
+        return "4h"
+    if total >= 10_000:
+        return "3h"
+    return "2h"
 
 # ----------------------------------------
 # DISCORD BOT SETUP
@@ -355,23 +374,6 @@ async def circlevalue(interaction: discord.Interaction, item_name: str):
             return "N/A"
         return f"{base_value / cost:.2f} base/₽"
 
-    def timer_label(total: int) -> str:
-        if total >= 400_000:
-            return "14h / 6h"
-        if total >= 350_000:
-            return "12h / 14h"
-        if total >= 200_000:
-            return "12h"
-        if total >= 100_000:
-            return "8h"
-        if total >= 50_000:
-            return "5h"
-        if total >= 25_000:
-            return "4h"
-        if total >= 10_000:
-            return "3h"
-        return "2h"
-
     pvp_cost = item.get("traderBuyPrice")
     pve_cost = item.get("pvePrice")
     pvp_vendor = item.get("traderBuyVendor")
@@ -398,9 +400,136 @@ async def circlevalue(interaction: discord.Interaction, item_name: str):
     copy_lines = []
     for count in range(1, 6):
         total = base_value * count
-        copy_lines.append(f"{count}x: {total:,}₽ - {timer_label(total)}")
+        copy_lines.append(f"{count}x: {total:,}₽ - {get_circle_timer_label(total)}")
     embed.add_field(name="1-5 Copies", value="\n".join(copy_lines), inline=False)
 
+    embed.set_footer(text="Base value math via Tarkov.dev. Weapons/durability may have special Circle behavior.")
+
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="circlecheck", description="Check a Cultist Circle combo's total base value")
+@app_commands.describe(
+    combo="Example: 3x Ratchet Wrench & 1x Flash Drive",
+)
+async def circlecheck(interaction: discord.Interaction, combo: str):
+    from price_search import fetch_items_data, find_item
+
+    await interaction.response.defer()
+
+    def parse_combo(raw_combo: str) -> List[Dict[str, Any]]:
+        parts = [p.strip() for p in re.split(r"\s*(?:&|\+|,|\band\b)\s*", raw_combo, flags=re.IGNORECASE) if p.strip()]
+        parsed: List[Dict[str, Any]] = []
+        for part in parts:
+            match = re.match(r"^(?:(\d+)\s*x?\s+|x\s*(\d+)\s+)?(.+?)$", part, flags=re.IGNORECASE)
+            if not match:
+                continue
+            quantity_raw = match.group(1) or match.group(2)
+            quantity = int(quantity_raw) if quantity_raw else 1
+            name = match.group(3).strip()
+            if quantity <= 0 or not name:
+                continue
+            parsed.append({"quantity": quantity, "name": name})
+        return parsed
+
+    parsed_items = parse_combo(combo)
+    if not parsed_items:
+        await interaction.followup.send("Could not parse that combo. Try `3x Ratchet Wrench & 1x Flash Drive`.")
+        return
+
+    total_quantity = sum(entry["quantity"] for entry in parsed_items)
+    if total_quantity > 5:
+        await interaction.followup.send("Cultist Circle accepts up to 5 items. That combo has too many items.")
+        return
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        await interaction.followup.send("Error: Could not fetch items data")
+        return
+
+    rows: List[Dict[str, Any]] = []
+    missing: List[str] = []
+    total_base = 0
+    total_pvp_cost = 0
+    total_pve_cost = 0
+    has_pvp_cost = True
+    has_pve_cost = True
+
+    for entry in parsed_items:
+        item = find_item(items_data, entry["name"])
+        if not item:
+            missing.append(entry["name"])
+            continue
+
+        quantity = entry["quantity"]
+        base_value = item.get("basePrice")
+        if not isinstance(base_value, int) or base_value <= 0:
+            missing.append(entry["name"])
+            continue
+
+        line_base = base_value * quantity
+        total_base += line_base
+
+        pvp_cost = item.get("traderBuyPrice")
+        if isinstance(pvp_cost, int) and pvp_cost > 0:
+            total_pvp_cost += pvp_cost * quantity
+        else:
+            has_pvp_cost = False
+
+        pve_cost = item.get("pvePrice")
+        if isinstance(pve_cost, int) and pve_cost > 0:
+            total_pve_cost += pve_cost * quantity
+        else:
+            has_pve_cost = False
+
+        rows.append({
+            "quantity": quantity,
+            "name": item.get("name") or entry["name"],
+            "base_value": base_value,
+            "line_base": line_base,
+            "link": item.get("link"),
+            "image": item.get("gridImageLink"),
+        })
+
+    if missing:
+        await interaction.followup.send(f"Could not match: {', '.join(missing)}")
+        return
+
+    if not rows:
+        await interaction.followup.send("Could not find valid base values for that combo.")
+        return
+
+    color = 0x2ecc71 if total_base >= 400_000 else 0xf1c40f if total_base >= 350_000 else 0xe67e22
+    embed = discord.Embed(
+        title="Cultist Circle Combo Check",
+        description=f"**Total Base Value:** {total_base:,}₽\n**Timer Pool:** {get_circle_timer_label(total_base)}",
+        color=color,
+    )
+
+    first_image = next((row["image"] for row in rows if row.get("image")), None)
+    if first_image:
+        embed.set_thumbnail(url=first_image)
+
+    for row in rows:
+        name = f"[{row['name']}]({row['link']})" if row.get("link") else row["name"]
+        image_link = f"\n[Icon]({row['image']})" if row.get("image") else ""
+        embed.add_field(
+            name=f"{row['quantity']}x {name}",
+            value=f"Base: {row['base_value']:,}₽ each\nLine: {row['line_base']:,}₽{image_link}",
+            inline=False,
+        )
+
+    threshold_lines = [
+        f"350k: {'yes' if total_base >= 350_000 else 'no'}",
+        f"400k: {'yes' if total_base >= 400_000 else 'no'}",
+        f"Slots used: {total_quantity}/5",
+    ]
+    embed.add_field(name="Thresholds", value="\n".join(threshold_lines), inline=True)
+
+    cost_lines = [
+        f"PvP trader: {total_pvp_cost:,}₽" if has_pvp_cost else "PvP trader: N/A",
+        f"PvE flea: {total_pve_cost:,}₽" if has_pve_cost else "PvE flea: N/A",
+    ]
+    embed.add_field(name="Total Cost", value="\n".join(cost_lines), inline=True)
     embed.set_footer(text="Base value math via Tarkov.dev. Weapons/durability may have special Circle behavior.")
 
     await interaction.followup.send(embed=embed)
