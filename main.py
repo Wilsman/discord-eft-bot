@@ -374,17 +374,11 @@ async def circlevalue(interaction: discord.Interaction, item_name: str):
             return "N/A"
         return f"{base_value / cost:.2f} base/₽"
 
-    pvp_cost = item.get("traderBuyPrice")
+    pvp_cost = item.get("price")
     pve_cost = item.get("pvePrice")
-    pvp_vendor = item.get("traderBuyVendor")
-    pvp_level = item.get("traderMinLevel")
-    vendor_label = ""
-    if pvp_vendor:
-        level = f" L{pvp_level}" if isinstance(pvp_level, int) else ""
-        vendor_label = f"\n{pvp_vendor}{level}"
 
     embed.add_field(name="Base Value", value=f"**{base_value:,}₽**", inline=True)
-    embed.add_field(name="PvP Trader Cost", value=f"{fmt_money(pvp_cost)}{vendor_label}", inline=True)
+    embed.add_field(name="PvP Flea Cost", value=fmt_money(pvp_cost), inline=True)
     embed.add_field(name="PvE Flea Cost", value=fmt_money(pve_cost), inline=True)
     embed.add_field(name="PvP Efficiency", value=fmt_efficiency(pvp_cost), inline=True)
     embed.add_field(name="PvE Efficiency", value=fmt_efficiency(pve_cost), inline=True)
