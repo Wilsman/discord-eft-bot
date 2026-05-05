@@ -1,30 +1,15 @@
-from typing import Final, Optional, Dict, List, Any, Union
+from typing import Final, Optional, Dict, List, Any
 import os
 from dotenv import load_dotenv
 from discord import Intents, app_commands
 import discord
 from discord.ext import commands
 import aiohttp
-import json
-import requests
-import ollama
 import re
 import asyncio
 from cultist import compute_cultist_selection
 import datetime
 from cultist_help import get_cultist_help_response as cultist_help_text, build_cultist_help_embed, get_thresholds_table
-import traceback
-from dataclasses import dataclass
-from typing import Optional
-
-# ----------------------------------------
-# COMMUNITY / PERPLEXICA DATA (example)
-# ----------------------------------------
-# If you have additional context or data for your "community" usage,
-# you can define it in a separate file and import it here.
-# For demonstration, we include placeholders:
-COMMUNITY_LINKS = {}
-COMMUNITY_CONTEXT = ""
 
 # ----------------------------------------
 # ENV + CONFIG
@@ -35,16 +20,6 @@ load_dotenv()
 # CONSTANTS & SETTINGS
 # ----------------------------------------
 TOKEN: Final[str] = os.getenv("DISCORD_TOKEN") or ""
-ENABLE_QUESTION_CLEANING = False
-OLLAMA_MODEL = "llama3.1:latest"  # Adjust to your local Ollama model
-
-# ----------------------------------------
-# ADDITIONAL DATACLASSES / STRUCTS
-# ----------------------------------------
-@dataclass
-class ChatResponse:
-    content: str
-    error: Optional[str] = None
 
 
 def get_circle_timer_label(total: int) -> str:
@@ -63,6 +38,44 @@ def get_circle_timer_label(total: int) -> str:
     if total >= 10_000:
         return "3h"
     return "2h"
+
+
+def fmt_money(value: Any, suffix: str = "₽") -> str:
+    return f"{value:,}{suffix}" if isinstance(value, int) and value > 0 else "N/A"
+
+
+async def build_item_autocomplete_choices(current: str) -> List[app_commands.Choice[str]]:
+    from price_search import fetch_items_data, find_item_matches
+
+    if len(current.strip()) < 2:
+        return []
+
+    items_data = await fetch_items_data()
+    if not items_data:
+        return []
+
+    choices: List[app_commands.Choice[str]] = []
+    seen_values = set()
+    matches = [
+        item for item in find_item_matches(items_data, current, limit=12)
+        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
+    ]
+    for item in matches:
+        item_name = item.get("name")
+        if not item_name or len(item_name) > 100 or item_name in seen_values:
+            continue
+        seen_values.add(item_name)
+        label = (
+            f"{item_name} | Base {fmt_money(item.get('basePrice'), '')} | "
+            f"PvP {fmt_money(item.get('price'), '')} | PvE {fmt_money(item.get('pvePrice'), '')}"
+        )
+        if len(label) > 100:
+            label = label[:97] + "..."
+        choices.append(app_commands.Choice(name=label, value=item_name))
+        if len(choices) >= 10:
+            break
+
+    return choices
 
 # ----------------------------------------
 # DISCORD BOT SETUP
@@ -387,40 +400,7 @@ async def circleown_item_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    from price_search import fetch_items_data, find_item_matches
-
-    if len(current.strip()) < 2:
-        return []
-
-    items_data = await fetch_items_data()
-    if not items_data:
-        return []
-
-    def fmt_money(value: Any) -> str:
-        return f"{value:,}" if isinstance(value, int) and value > 0 else "N/A"
-
-    choices: List[app_commands.Choice[str]] = []
-    seen_values = set()
-    matches = [
-        item for item in find_item_matches(items_data, current, limit=12)
-        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
-    ]
-    for item in matches:
-        matched_name = item.get("name")
-        if not matched_name or len(matched_name) > 100 or matched_name in seen_values:
-            continue
-        seen_values.add(matched_name)
-        label = (
-            f"{matched_name} | Base {fmt_money(item.get('basePrice'))} | "
-            f"PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
-        )
-        if len(label) > 100:
-            label = label[:97] + "..."
-        choices.append(app_commands.Choice(name=label, value=matched_name))
-        if len(choices) >= 10:
-            break
-
-    return choices
+    return await build_item_autocomplete_choices(current)
 
 
 @bot.tree.command(name="bosschanges", description="Show today's latest boss spawn changes")
@@ -662,6 +642,14 @@ async def price(interaction: discord.Interaction, item_name: str, mode: Optional
 
     await interaction.followup.send(embed=embed)
 
+
+@price.autocomplete("item_name")
+async def price_item_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    return await build_item_autocomplete_choices(current)
+
 @bot.tree.command(name="circlevalue", description="Show one item's Cultist Circle value efficiency")
 @app_commands.describe(
     item_name="Name of the item to check",
@@ -739,41 +727,7 @@ async def circlevalue_item_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    from price_search import fetch_items_data, find_item_matches
-
-    if len(current.strip()) < 2:
-        return []
-
-    items_data = await fetch_items_data()
-    if not items_data:
-        return []
-
-    def fmt_money(value: Any) -> str:
-        return f"{value:,}" if isinstance(value, int) and value > 0 else "N/A"
-
-    def fit_choice_name(value: str) -> str:
-        return value if len(value) <= 100 else value[:97] + "..."
-
-    choices: List[app_commands.Choice[str]] = []
-    seen_values = set()
-    matches = [
-        item for item in find_item_matches(items_data, current, limit=12)
-        if isinstance(item.get("basePrice"), int) and item.get("basePrice") > 0
-    ]
-    for item in matches:
-        item_name = item.get("name")
-        if not item_name or len(item_name) > 100 or item_name in seen_values:
-            continue
-        seen_values.add(item_name)
-        label = (
-            f"{item_name} | Base {fmt_money(item.get('basePrice'))} | "
-            f"PvP {fmt_money(item.get('price'))} | PvE {fmt_money(item.get('pvePrice'))}"
-        )
-        choices.append(app_commands.Choice(name=fit_choice_name(label), value=item_name))
-        if len(choices) >= 10:
-            break
-
-    return choices
+    return await build_item_autocomplete_choices(current)
 
 
 @bot.tree.command(name="circlecheck", description="Check a Cultist Circle combo's total base value")
@@ -1032,49 +986,6 @@ async def circlehot(
 
     await interaction.followup.send(embed=embed)
 
-# @bot.tree.command(name="ai", description="Ask AI a Question")
-# @app_commands.describe(
-#     question="Your question to the ai"
-# )
-# async def ai_search(
-#     interaction: discord.Interaction, 
-#     question: str
-# ):
-#     await interaction.response.defer()
-    
-#     try:
-#         # Add time context to the question
-#         time_context = format_time_context()
-#         context_message = create_chat_prompt(question, time_context)
-        
-#         # Search using Perplexica
-#         response = await search_perplexica(context_message)
-        
-#         # Handle the response
-#         if isinstance(response, ChatResponse):
-#             if response.error:
-#                 await interaction.followup.send(f"Error: {response.error}")
-#             else:
-#                 # Truncate response if it's too long
-#                 content = response.content
-#                 if len(content) > 1900:  # Leave room for ellipsis and source
-#                     # Find the last complete sentence before the limit
-#                     last_period = content[:1900].rfind('.')
-#                     if last_period == -1:
-#                         last_period = 1900
-#                     content = content[:last_period + 1] + "\n\n[Response truncated due to length...]"
-#                 await interaction.followup.send(content)
-#         else:
-#             # For backward compatibility with string responses
-#             content = str(response)
-#             if len(content) > 1900:
-#                 content = content[:1900] + "\n\n[Response truncated due to length...]"
-#             await interaction.followup.send(content)
-            
-#     except Exception as e:
-#         error_message = f"An error occurred while processing your question: {str(e)}"
-#         await interaction.followup.send(error_message)
-
 @bot.tree.command(name="ammo", description="Look up information about ammunition types")
 async def ammo(interaction: discord.Interaction, name: str):
     """Look up information about ammunition types using GraphQL data"""
@@ -1109,176 +1020,14 @@ async def ammo(interaction: discord.Interaction, name: str):
     await interaction.followup.send(embed=embed)
 
 # ----------------------------------------
-# AMMO FUNCTIONS (migrated to ammo_search.py)
-# ----------------------------------------
-
-# ----------------------------------------
-# EXISTING BOT FUNCTIONS
-# ----------------------------------------
-async def get_ai_response(prompt: str) -> Union[ChatResponse, str]:
-    try:
-        return await search_perplexica(prompt)
-    except Exception as e:
-        return ChatResponse(content="", error=str(e))
-
-# ----------------------------------------
-# NEW PERPLEXICA / OLLAMA FUNCTIONS
-# ----------------------------------------
-def format_time_context() -> str:
-    current_datetime = datetime.datetime.now()
-    date_str = current_datetime.strftime("%Y-%m-%d %H:%M:%S")
-    return (
-        f"TIME CONTEXT:\n"
-        f"- Current: {date_str}\n"
-        f"- For events: Use exact hours/minutes for today, days for future"
-    )
-
-
-def create_chat_prompt(original_question: str, context_message: str) -> str:
-    """Create a chat prompt for Ollama"""
-    return f"""Based on this context, answer the question concisely and accurately.
-Question: {original_question}
-Context: {context_message}
-Response: """
-
-
-def format_qa_response(answer: str, source_url: Optional[str] = None) -> str:
-    """Format Q&A response with better formatting and source attribution"""
-    response_parts = []
-    
-    # Add the main answer with proper formatting
-    response_parts.append(f"**Answer:** {answer}")
-    
-    # Add source if available
-    if source_url:
-        response_parts.append(f"\n**Source:** {source_url}")
-    
-    return "\n".join(response_parts)
-
-
-async def get_concise_response(
-    long_answer: str,
-    original_question: str,
-    sources: List[Dict[str, Any]]
-) -> ChatResponse:
-    try:
-        # Get response from Ollama
-        response = await ollama.chat(
-            model=OLLAMA_MODEL,
-            messages=[{"role": "user", "content": long_answer}]
-        )
-        
-        answer = response.messages[-1].content.strip()
-        
-        # Get source URL if available
-        source_url = None
-        if sources and len(sources) > 0:
-            # Check for Khorovod-specific case
-            if "latest tarkov event task" in original_question.lower():
-                for source in sources:
-                    if "khorovod" in source.get("title", "").lower():
-                        source_url = source.get("url")
-                        break
-            # Default to first source if no Khorovod source found
-            if not source_url and sources[0].get("url"):
-                source_url = sources[0]["url"]
-        
-        # Format the response
-        formatted_response = format_qa_response(answer, source_url)
-        return ChatResponse(content=formatted_response)
-
-    except Exception as e:
-        error_msg = f"Error generating response: {str(e)}"
-        return ChatResponse(content="I encountered an error while processing your question.", error=error_msg)
-
-
-def clean_question_with_ollama(question: str) -> str:
-    if not ENABLE_QUESTION_CLEANING:
-        print("Question cleaning disabled, using original:", question)
-        return question
-
-    try:
-        prompt = (
-            f"Your task is to ONLY fix grammar and formatting. "
-            f"DO NOT add or change any facts. "
-            f"Clean this question: '{question}'\n"
-            f"Return ONLY the cleaned question."
-        )
-        response = ollama.chat(model=OLLAMA_MODEL, messages=[{"role": "user", "content": prompt}])
-        cleaned = response["message"]["content"].strip().strip("\"'")
-        print("Question cleaned:", cleaned)
-        return cleaned
-    except Exception as err:
-        print(f"Question cleaning failed: {err}")
-        return question
-
-
-async def search_perplexica(
-    query: str, history: Optional[List[Dict[str, Any]]] = None
-) -> Union[str, ChatResponse]:
-    """
-    Sends query to Perplexica, which returns a structure with 'message' and 'sources'.
-    """
-    cleaned_query = clean_question_with_ollama(query)
-    url = "http://localhost:3001/api/search"  # Adjust if needed
-
-    payload = {
-        "chatModel": {"provider": "ollama", "model": OLLAMA_MODEL},
-        "embeddingModel": {"provider": "ollama", "model": OLLAMA_MODEL},
-        "optimizationMode": "speed",
-        "focusMode": "webSearch",
-        "query": cleaned_query,
-        "history": history or [],
-    }
-
-    try:
-        print(f"[Perplexica] Sending request for query: {cleaned_query}")
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url, headers={"Content-Type": "application/json"}, json=payload
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    print(f"[Perplexica] HTTP error {response.status}: {error_text}")
-                    return ChatResponse(error=f"HTTP error occurred: {response.status}")
-
-                data = await response.json()
-                print(f"[Perplexica] Received response: {json.dumps(data, indent=2)}")
-
-                if not data or "message" not in data:
-                    print("[Perplexica] Invalid response format")
-                    return ChatResponse(error="Invalid response from AI service")
-
-                # Extract the main text and format it
-                message = data.get("message", "No message returned.")
-                sources = data.get("sources", [])
-                
-                # Get the first source URL if available
-                source_url = None
-                if sources and len(sources) > 0 and "url" in sources[0]["metadata"]:
-                    source_url = sources[0]["metadata"]["url"]
-                
-                # Format the response with source attribution if available
-                formatted_response = format_qa_response(message, source_url)
-                return ChatResponse(content=formatted_response)
-
-    except aiohttp.ClientError as e:
-        print(f"[Perplexica] Network error: {str(e)}")
-        return ChatResponse(error=f"Network error: {str(e)}")
-    except Exception as err:
-        print(f"[Perplexica] Unexpected error: {str(err)}")
-        traceback.print_exc()
-        return ChatResponse(error=f"Unexpected error: {str(err)}")
-
-# ----------------------------------------
 # HIDEOUT COMMANDS
 # ----------------------------------------
 def get_cultist_help_response(question: str) -> str:
     # Delegates to implementation in cultist_help.py (logic moved out of main)
     return cultist_help_text(question)
 
-@bot.tree.command(name="help", description="Get information about Cultist Circle timings and thresholds")
-async def help(interaction: discord.Interaction, question: str):
+@bot.tree.command(name="circlehelp", description="Get information about Cultist Circle timings and thresholds")
+async def circlehelp(interaction: discord.Interaction, question: str):
     """
     Get information about Cultist Circle timings and thresholds
     
@@ -1295,8 +1044,8 @@ async def help(interaction: discord.Interaction, question: str):
     
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
-@bot.tree.command(name="thresholds", description="Display Cultist Circle value thresholds and timing table")
-async def thresholds(interaction: discord.Interaction):
+@bot.tree.command(name="circlethresholds", description="Display Cultist Circle value thresholds and timing table")
+async def circlethresholds(interaction: discord.Interaction):
     """Display a comprehensive table of Cultist Circle value thresholds and their corresponding timings."""
     table = get_thresholds_table()
     
