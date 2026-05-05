@@ -1032,48 +1032,6 @@ async def circlehot(
 
     await interaction.followup.send(embed=embed)
 
-@bot.tree.command(name="base", description="Show item's base value")
-@app_commands.describe(
-    item_name="Name of the item to search for",
-)
-async def base(interaction: discord.Interaction, item_name: str):
-    from price_search import fetch_items_data, find_item
-
-    await interaction.response.defer()
-
-    items_data = await fetch_items_data()
-    if not items_data:
-        await interaction.followup.send("Error: Could not fetch items data")
-        return
-
-    item = find_item(items_data, item_name)
-    if not item:
-        await interaction.followup.send(f"Could not find item matching '{item_name}'")
-        return
-
-    link = item.get("link")
-    if link:
-        embed = discord.Embed(
-            title=item["name"],
-            color=0x2b2d31,
-            url=link,
-        )
-    else:
-        embed = discord.Embed(
-            title=item["name"],
-            color=0x2b2d31,
-        )
-
-    thumb = item.get("gridImageLink")
-    if thumb:
-        embed.set_thumbnail(url=thumb)
-
-    base_price = item.get("basePrice")
-    base_val = f"**{base_price:,}₽**" if isinstance(base_price, int) else "N/A"
-    embed.add_field(name="Base Value", value=base_val, inline=False)
-
-    await interaction.followup.send(embed=embed)
-
 # @bot.tree.command(name="ai", description="Ask AI a Question")
 # @app_commands.describe(
 #     question="Your question to the ai"
