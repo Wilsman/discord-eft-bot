@@ -892,97 +892,65 @@ async def circlecheck(interaction: discord.Interaction, combo: str):
 
     await interaction.followup.send(embed=embed)
 
-@bot.tree.command(name="circlehot", description="List current high-efficiency Cultist Circle sacrifice items")
-@app_commands.describe(
-    mode="Price source: PvP flea or PvE flea",
-    max_cost="Ignore items above this flea price (default: 250000)",
-)
-@app_commands.choices(
-    mode=[
-        app_commands.Choice(name="PvP flea", value="pvp"),
-        app_commands.Choice(name="PvE flea", value="pve"),
-    ]
-)
-async def circlehot(
-    interaction: discord.Interaction,
-    mode: Optional[app_commands.Choice[str]] = None,
-    max_cost: int = 250_000,
-):
-    from price_search import fetch_items_data
-
+@bot.tree.command(name="circlehot", description="List popular Cultist Circle sacrifice recipes")
+async def circlehot(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    selected_mode = mode.value if mode else "pvp"
-    price_key = "pvePrice" if selected_mode == "pve" else "price"
-    mode_label = "PvE flea" if selected_mode == "pve" else "PvP flea"
-    sane_max_cost = max(1_000, min(max_cost, 5_000_000))
-
-    items_data = await fetch_items_data()
-    if not items_data or "items" not in items_data:
-        await interaction.followup.send("Error: Could not fetch items data")
-        return
-
-    candidates: List[Dict[str, Any]] = []
-    for item in items_data["items"]:
-        base_value = item.get("basePrice")
-        price = item.get(price_key)
-        if not isinstance(base_value, int) or base_value < 10_000:
-            continue
-        if not isinstance(price, int) or price < 1_000 or price > sane_max_cost:
-            continue
-
-        ratio = base_value / price
-        if ratio <= 0:
-            continue
-
-        candidates.append({
-            "name": item.get("name") or item.get("shortName") or "Unknown",
-            "base_value": base_value,
-            "price": price,
-            "ratio": ratio,
-            "link": item.get("link"),
-            "image": item.get("gridImageLink"),
-        })
-
-    if not candidates:
-        await interaction.followup.send(f"No good {mode_label} candidates found under {sane_max_cost:,}₽.")
-        return
-
-    candidates.sort(key=lambda entry: (entry["ratio"], entry["base_value"]), reverse=True)
-    top_items = candidates[:5]
+    recipes = [
+        {
+            "name": "5x MP5",
+            "value": "400K+ (6h & 14h)",
+            "detail": "5x MP5 - Peacekeeper LL1",
+            "highlight": True,
+        },
+        {
+            "name": "4x MP5 + Diary",
+            "value": "400K+ (6h & 14h)",
+            "detail": "4x MP5 - Peacekeeper LL1\n1x Diary",
+        },
+        {
+            "name": "2x MP5 SD + Diary",
+            "value": "400K+ (6h & 14h)",
+            "detail": "2x MP5 SD - Peacekeeper LL2\n1x Diary",
+        },
+        {
+            "name": "3x STM-9 + Saiga-9",
+            "value": "350K+ (14h)",
+            "detail": "3x STM-9 - Skier LL2\n1x Saiga-9 - Skier LL1",
+        },
+        {
+            "name": "4x STM-9 + Saiga-9",
+            "value": "400K+ (6h & 14h)",
+            "detail": "4x STM-9 - Skier LL2\n1x Saiga-9 - Skier LL1",
+        },
+        {
+            "name": "Labs Card -> barter into G28",
+            "value": "400K+ (6h & 14h)",
+            "detail": "1x Labs Access Card -> G28 Patrol - Peacekeeper LL3",
+        },
+        {
+            "name": "SAS -> barter into THOR IC",
+            "value": "400K+ (6h & 14h)",
+            "detail": "1x SAS drive -> THOR IC - Peacekeeper LL4\nPVE only after THOR value change.",
+        },
+    ]
 
     embed = discord.Embed(
         title="Hot Cultist Circle Sacrifices",
-        description=f"Top 5 by base value per rouble using **{mode_label}** prices.\nMax item cost: {sane_max_cost:,}₽",
+        description="Community-tested recipes from Cultist Circle.",
         color=0xe67e22,
     )
+    embed.set_thumbnail(url="https://assets.tarkov.dev/59411aa786f7747aeb37f9a5-icon.webp")
 
-    first_image = next((item["image"] for item in top_items if item.get("image")), None)
-    if first_image:
-        embed.set_thumbnail(url=first_image)
-
-    for index, item in enumerate(top_items, start=1):
-        name = f"[{item['name']}]({item['link']})" if item.get("link") else item["name"]
-        one_item_timer = get_circle_timer_label(item["base_value"])
-        copies_350 = (350_000 + item["base_value"] - 1) // item["base_value"]
-        copies_400 = (400_000 + item["base_value"] - 1) // item["base_value"]
-        target_line = (
-            f"350k: {copies_350}x" if copies_350 <= 5 else "350k: no"
-        ) + " | " + (
-            f"400k: {copies_400}x" if copies_400 <= 5 else "400k: no"
-        )
-
+    for index, recipe in enumerate(recipes, start=1):
+        prefix = "Featured - " if recipe.get("highlight") else ""
         embed.add_field(
-            name=f"{index}. {name}",
-            value=(
-                f"Base: {item['base_value']:,}₽ | Cost: {item['price']:,}₽\n"
-                f"Efficiency: {item['ratio']:.2f} base/₽ | 1x: {one_item_timer}\n"
-                f"{target_line}"
-            ),
+            name=f"{index}. {prefix}{recipe['name']}",
+            value=f"{recipe['detail']}\nResult: **{recipe['value']}**",
             inline=False,
         )
 
-    embed.set_footer(text="Filtered to positive flea prices and base value >= 10k. Data via Tarkov.dev.")
+    embed.set_footer(text="Popular recipes from Cultist Circle live testing. Weapon values can be special.")
 
     await interaction.followup.send(embed=embed)
 
