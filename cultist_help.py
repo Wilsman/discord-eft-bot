@@ -30,11 +30,11 @@ def get_cultist_help_response(question: str) -> str:
         )
     elif in_q("14h", "14 h", "better loot"):
         return (
-            "≥350k gives a chance at 14h (high tier loot). "
+            "≥350k gives 14h (high tier loot). "
             "At ≥400k: 75% 14h, 25% 6h (quest/hideout items)."
         )
     elif in_q("12h", "12 h", "default"):
-        return "12h (normal loot) is the default. <350k is guaranteed 12h; 350–399k can give 12h (normal) or 14h (high tier)."
+        return "12h (normal loot) is the default. <350k is 12h; 350–399k is 14h."
 
     # Threshold summary - return formatted table
     elif in_q("threshold", "thresholds", "explain thresholds"):
@@ -146,7 +146,7 @@ def get_cultist_help_response(question: str) -> str:
     # Calculator usage
     elif in_q("calculator", "how to use", "use it", "help"):
         return (
-            "Pick up to 5 items and check total base value: ≥350k for 14h (high tier) chance; ≥400k for 25% 6h (quest/hideout) / 75% 14h (high tier). "
+            "Pick up to 5 items and check total base value: ≥350k for 14h (high tier); ≥400k for 25% 6h (quest/hideout) / 75% 14h (high tier). "
             "Base value uses vendor price ÷ multiplier."
         )
 
@@ -182,8 +182,7 @@ def get_thresholds_table() -> str:
         "│ 50,001 - 100,000  │ 5 hours  │ Normal value item                     │\n"
         "│ 100,001 - 200,000 │ 8 hours  │ Normal value item                     │\n"
         "│ 200,001 - 349,999 │ 12 hours │ Normal value item (guaranteed)        │\n"
-        "│ 350,000 - 399,999 │ 12h or   │ Normal (12h) or High tier (14h)       │\n"
-        "│                   │ 14 hours │                                       │\n"
+        "│ 350,000 - 399,999 │ 14 hours │ High tier item                        │\n"
         "│ ≥ 400,000         │ 14h / 6h │ High tier (75%) / Quest-Hideout (25%) │\n"
         "└───────────────────┴──────────┴───────────────────────────────────────┘\n"
         "```"

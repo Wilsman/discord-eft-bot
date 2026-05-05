@@ -26,7 +26,7 @@ def get_circle_timer_label(total: int) -> str:
     if total >= 400_000:
         return "14h / 6h"
     if total >= 350_000:
-        return "12h / 14h"
+        return "14h"
     if total >= 200_000:
         return "12h"
     if total >= 100_000:
@@ -167,7 +167,7 @@ async def cultist(
 )
 @app_commands.choices(
     target=[
-        app_commands.Choice(name="350k - 12h/14h chance", value=350000),
+        app_commands.Choice(name="350k - 14h", value=350000),
         app_commands.Choice(name="400k - 14h/6h pool", value=400000),
     ],
     mode=[
@@ -245,7 +245,7 @@ async def circlecheap(
 )
 @app_commands.choices(
     target=[
-        app_commands.Choice(name="350k - 12h/14h chance", value=350000),
+        app_commands.Choice(name="350k - 14h", value=350000),
         app_commands.Choice(name="400k - 14h/6h pool", value=400000),
     ],
     mode=[
