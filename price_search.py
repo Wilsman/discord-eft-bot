@@ -3,6 +3,7 @@ import aiohttp
 from datetime import datetime, timezone as tz
 import os
 import json
+import asyncio
 
 # Prefer fuzzywuzzy if installed; fallback to stdlib difflib
 try:
@@ -14,7 +15,10 @@ except Exception:  # ModuleNotFoundError or others
 
 # Cache configuration
 CACHE_FILE = os.path.join(os.path.dirname(__file__), "items_cache.json")
-CACHE_TTL_SECONDS = 600  # 10 minutes
+CACHE_TTL_SECONDS = 1800  # 30 minutes
+_memory_cache: Optional[Dict[str, Any]] = None
+_memory_cache_ts = 0.0
+_fetch_lock = asyncio.Lock()
 
 
 async def fetch_items_data() -> Optional[Dict[str, Any]]:
@@ -23,11 +27,33 @@ async def fetch_items_data() -> Optional[Dict[str, Any]]:
 
     Returns a dict with shape: { "items": [...], "fetchedAt": iso_string }
     """
-    # 1) Serve fresh cache when available
+    global _memory_cache, _memory_cache_ts
+
+    now_ts = datetime.now(tz.utc).timestamp()
+
+    # 1) Serve fresh process memory cache first. Autocomplete can call this for
+    # every keystroke, so avoid disk/API work on the hot path.
+    if _memory_cache is not None and (now_ts - _memory_cache_ts) < CACHE_TTL_SECONDS:
+        return _memory_cache
+
+    async with _fetch_lock:
+        now_ts = datetime.now(tz.utc).timestamp()
+        if _memory_cache is not None and (now_ts - _memory_cache_ts) < CACHE_TTL_SECONDS:
+            return _memory_cache
+
+        data = await _fetch_items_data_uncached(now_ts)
+        if data is not None:
+            _memory_cache = data
+            _memory_cache_ts = datetime.now(tz.utc).timestamp()
+        return data
+
+
+async def _fetch_items_data_uncached(now_ts: float) -> Optional[Dict[str, Any]]:
+    # 1) Serve fresh file cache when available
     try:
         if os.path.exists(CACHE_FILE):
             mtime = os.path.getmtime(CACHE_FILE)
-            if (datetime.now(tz.utc).timestamp() - mtime) < CACHE_TTL_SECONDS:
+            if (now_ts - mtime) < CACHE_TTL_SECONDS:
                 with open(CACHE_FILE, "r", encoding="utf-8") as f:
                     return json.load(f)
     except Exception as e:

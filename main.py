@@ -9,6 +9,7 @@ import json
 import requests
 import ollama
 import re
+import asyncio
 from cultist import compute_cultist_selection
 import datetime
 from cultist_help import get_cultist_help_response as cultist_help_text, build_cultist_help_embed, get_thresholds_table
@@ -1349,6 +1350,18 @@ async def thresholds(interaction: discord.Interaction):
 @bot.event
 async def on_ready() -> None:
     print(f"{bot.user} has connected to Discord!")
+
+    async def warm_items_cache() -> None:
+        try:
+            from price_search import fetch_items_data
+
+            data = await fetch_items_data()
+            count = len(data.get("items", [])) if data else 0
+            print(f"Warmed item cache with {count} item(s)")
+        except Exception as e:
+            print(f"Failed to warm item cache: {e}")
+
+    asyncio.create_task(warm_items_cache())
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
