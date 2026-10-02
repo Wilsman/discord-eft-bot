@@ -1,5 +1,7 @@
-# gitignore file
 .env
 .venv/
 __pycache__/
+.pytest_cache/
+.command-sync
 myREADME.md
+*_cache.json
