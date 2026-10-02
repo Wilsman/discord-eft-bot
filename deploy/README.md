@@ -5,12 +5,13 @@ address and 1 TB transfer). The bot only makes outbound connections, so only SSH
 
 ## First time
 
-1. Import an SSH public key into Lightsail (once per region):
+1. Import an SSH public key into Lightsail (once per region). Lightsail names share one
+   namespace per region, so the key pair can't also be called `nerdbot`:
 
    ```bash
    ssh-keygen -y -f path/to/key.pem > nerdbot.pub
    aws lightsail import-key-pair --region eu-west-2 \
-     --key-pair-name nerdbot --public-key-base64 "$(cat nerdbot.pub)"
+     --key-pair-name nerdbot-ssh --public-key-base64 "$(cat nerdbot.pub)"
    ```
 
 2. Create the stack. `SshCidr` should be your own IP as `/32`:
@@ -18,7 +19,7 @@ address and 1 TB transfer). The bot only makes outbound connections, so only SSH
    ```bash
    aws cloudformation deploy --region eu-west-2 --stack-name nerdbot \
      --template-file deploy/lightsail.yaml \
-     --parameter-overrides KeyPairName=nerdbot SshCidr=203.0.113.7/32
+     --parameter-overrides KeyPairName=nerdbot-ssh SshCidr=203.0.113.7/32
    ```
 
    First boot installs Python, clones the repo and enables the service. It takes a few
