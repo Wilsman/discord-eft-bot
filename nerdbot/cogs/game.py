@@ -58,7 +58,7 @@ def _map_lines(bm: BossMap, boss: Boss) -> str:
         lines.append("**Spawns** " + ", ".join(zones))
     if bm.escorts:
         guards = [
-            f"+{e.count} more" if e.name == boss.name else f"{e.name} Ã—{e.count}" for e in bm.escorts
+            f"+{e.count} more" if e.name == boss.name else f"{e.name} ×{e.count}" for e in bm.escorts
         ]
         lines.append("**With** " + ", ".join(guards))
     notes = []
@@ -69,7 +69,7 @@ def _map_lines(bm: BossMap, boss: Boss) -> str:
     if bm.groups > 1:
         notes.append(f"{bm.groups} spawn groups")
     if notes:
-        lines.append("-# " + "  Â·  ".join(notes))
+        lines.append("-# " + "  ·  ".join(notes))
     return style.truncate("\n".join(lines), 1024)
 
 
@@ -77,20 +77,20 @@ def boss_embed(boss: Boss, mode: GameMode, alias: str | None = None) -> discord.
     bits = [f"Seen on **{len(boss.maps)}** map{'s' if len(boss.maps) != 1 else ''}"]
     if boss.health:
         bits.append(f"**{boss.health:,}** HP")
-    desc = "  Â·  ".join(bits)
+    desc = "  ·  ".join(bits)
     if alias:
         desc = f"*{alias}* spawns with {boss.name}.\n" + desc
     e = style.embed(boss.name, desc, color=0x9B59B6, url=boss.url)
     if boss.portrait:
         e.set_thumbnail(url=boss.portrait)
     for bm in boss.maps[:24]:
-        e.add_field(name=f"{bm.map_name}  Â·  {bm.chance}", value=_map_lines(bm, boss), inline=False)
+        e.add_field(name=f"{bm.map_name}  ·  {bm.chance}", value=_map_lines(bm, boss), inline=False)
     # Keep well under the 6000-char embed cap.
     while len(e) > 5800 and e.fields:
         e.remove_field(-1)
     shown = len(e.fields)
     extra = f"{shown} of {len(boss.maps)} maps" if shown < len(boss.maps) else ""
-    return style.footer(e, f"tarkov.dev  Â·  {MODE_LABEL[mode]}", extra)
+    return style.footer(e, f"tarkov.dev  ·  {MODE_LABEL[mode]}", extra)
 
 
 class Game(commands.Cog):

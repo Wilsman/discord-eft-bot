@@ -39,6 +39,8 @@ async def bot(catalog):
 
 def check_embed(e: discord.Embed) -> None:
     assert len(e) <= 6000
+    text = " ".join(filter(None, [e.title, e.description, e.footer.text, *(f.name + f.value for f in e.fields)]))
+    assert "\u00c2" not in text and "\u00c3" not in text, "mis-encoded text (mojibake) in embed"
     assert len(e.fields) <= 25
     if e.title:
         assert len(e.title) <= 256
