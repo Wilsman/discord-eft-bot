@@ -63,7 +63,7 @@ async def test_slash_commands_serialize(bot):
             assert len(opt["description"]) <= 100, opt
             for sub in opt.get("options", []):
                 assert len(sub["description"]) <= 100, sub
-    assert {"price", "ammo", "thresholds", "circle", "faq", "help", "status", "bosses"} <= names
+    assert {"price", "ammo", "thresholds", "circle", "faq", "help", "status", "bosses", "boss"} <= names
     circle = bot.tree.get_command("circle")
     assert {c.name for c in circle.commands} == {"cheapest", "check", "value", "hot", "recipes"}
 

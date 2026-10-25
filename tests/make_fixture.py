@@ -29,6 +29,16 @@ def get(path: str) -> bytes:
         return gzip.decompress(raw) if r.headers.get("Content-Encoding") == "gzip" else raw
 
 
+def slim_maps(data: dict) -> dict:
+    """Keep only the boss spawns and mob fields that nerdbot.tarkov.bosses reads."""
+    map_keys = {"id", "name", "normalizedName", "raidDuration", "bosses"}
+    mob_keys = {"id", "name", "normalizedName", "imagePortraitLink", "health"}
+    return {"data": {
+        "maps": {k: {f: v for f, v in m.items() if f in map_keys} for k, m in data["maps"].items()},
+        "mobs": {k: {f: v for f, v in m.items() if f in mob_keys} for k, m in data["mobs"].items()},
+    }}
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     doc = orjson.loads(get("regular/items"))
@@ -43,6 +53,9 @@ def main() -> None:
     payload = {"data": {"items": slim, "itemCategories": data["itemCategories"], "fleaMarket": data["fleaMarket"]}}
     (OUT / "regular_items.json.gz").write_bytes(gzip.compress(orjson.dumps(payload), 9))
     (OUT / "regular_items_en.json.gz").write_bytes(gzip.compress(get("regular/items_en"), 9))
+    maps = orjson.loads(get("regular/maps"))["data"]
+    (OUT / "regular_maps.json.gz").write_bytes(gzip.compress(orjson.dumps(slim_maps(maps)), 9))
+    (OUT / "regular_maps_en.json.gz").write_bytes(gzip.compress(get("regular/maps_en"), 9))
     traders = orjson.loads(get("regular/traders"))["data"]
     names = orjson.loads(get("regular/traders_en"))["data"]
     (OUT / "traders.json").write_bytes(orjson.dumps({tid: names[t["name"]] for tid, t in traders.items()}))

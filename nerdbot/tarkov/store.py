@@ -12,6 +12,7 @@ from typing import Any
 import aiohttp
 import orjson
 
+from .bosses import BossBook, build_bosses
 from .calibers import caliber_name
 from .models import AmmoStats, GameMode, Item, Offer
 from .search import ItemIndex
@@ -166,6 +167,43 @@ class TarkovStore:
         self._blobs: dict[str, bytes] = {}  # small payloads we re-use when items change
         self._traders: dict[str, dict[str, str]] = {}
         self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._bosses: dict[str, BossBook] = {}
+        # Parsing a feed briefly needs ~150 MB; run one at a time on the 512 MB server.
+        self._parse_lock = asyncio.Lock()
+
+    def peek_bosses(self, mode: GameMode) -> BossBook | None:
+        return self._bosses.get(mode)
+
+    async def bosses(self, mode: GameMode, max_age_minutes: int = 60) -> BossBook:
+        """Boss spawns, loaded on first use and re-checked (via ETag) once it's stale."""
+        book = self._bosses.get(mode)
+        if book and (datetime.now(timezone.utc) - book.loaded_at).total_seconds() < max_age_minutes * 60:
+            return book
+        async with self._locks[f"{mode}/maps"]:
+            book = self._bosses.get(mode)
+            path = f"{mode}/maps"
+            if book is None:
+                self._etags.pop(path, None)
+            try:
+                body = await self._fetch(path)
+            except Exception:
+                if book is None:
+                    raise
+                log.warning("Boss data refresh for %s failed; keeping the old copy", mode)
+                book.loaded_at = datetime.now(timezone.utc)
+                return book
+            if body is None and book is not None:  # 304, nothing changed
+                book.loaded_at = datetime.now(timezone.utc)
+                return book
+            assert body is not None
+            translations = await self._small(f"{mode}/maps_en")
+            async with self._parse_lock:
+                book = await asyncio.to_thread(build_bosses, body, translations)
+            del body
+            self._bosses[mode] = book
+            gc.collect()
+            log.info("Loaded %s boss data: %d bosses", mode, len(book.bosses))
+            return book
 
     def peek(self, mode: GameMode) -> Catalog | None:
         return self._catalogs.get(mode)
@@ -241,7 +279,8 @@ class TarkovStore:
         traders = await self._trader_names(mode)
         self._traders[mode] = traders
         started = datetime.now(timezone.utc)
-        catalog = await asyncio.to_thread(build_catalog, mode, body, translations, traders)
+        async with self._parse_lock:
+            catalog = await asyncio.to_thread(build_catalog, mode, body, translations, traders)
         del body
         self._catalogs[mode] = catalog
         gc.collect()

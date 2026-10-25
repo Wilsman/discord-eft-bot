@@ -17,3 +17,12 @@ def catalog() -> Catalog:
     translations = gzip.decompress((FIXTURES / "regular_items_en.json.gz").read_bytes())
     traders = orjson.loads((FIXTURES / "traders.json").read_bytes())
     return build_catalog("regular", items, translations, traders)
+
+
+@pytest.fixture(scope="session")
+def boss_book():
+    from nerdbot.tarkov import build_bosses
+
+    maps = gzip.decompress((FIXTURES / "regular_maps.json.gz").read_bytes())
+    translations = gzip.decompress((FIXTURES / "regular_maps_en.json.gz").read_bytes())
+    return build_bosses(maps, translations)
