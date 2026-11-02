@@ -93,6 +93,53 @@ def boss_embed(boss: Boss, mode: GameMode, alias: str | None = None) -> discord.
     return style.footer(e, f"tarkov.dev  ·  {MODE_LABEL[mode]}", extra)
 
 
+def boss_embed_all(per_mode: dict[GameMode, Boss], alias: str | None = None) -> discord.Embed:
+    """One embed covering every loaded mode; modes with identical spawn data share a field."""
+    first = next(iter(per_mode.values()))
+    # map name -> [(modes, chance sort key, BossMap)], merging modes whose output is identical
+    by_map: dict[str, list[tuple[list[GameMode], BossMap]]] = {}
+    for mode, boss in per_mode.items():
+        for bm in boss.maps:
+            groups = by_map.setdefault(bm.map_name, [])
+            body = _map_lines(bm, boss)
+            for modes, other in groups:
+                if other.chance == bm.chance and _map_lines(other, per_mode[modes[0]]) == body:
+                    modes.append(mode)
+                    break
+            else:
+                groups.append(([mode], bm))
+
+    all_modes = list(per_mode)
+    ordered = sorted(
+        ((name, g) for name, g in by_map.items()),
+        key=lambda kv: (-max(bm.chance_high for _, bm in kv[1]), kv[0]),
+    )
+    bits = [f"Seen on **{len(by_map)}** map{'s' if len(by_map) != 1 else ''}"]
+    if first.health:
+        bits.append(f"**{first.health:,}** HP")
+    desc = "  ·  ".join(bits)
+    if alias:
+        desc = f"*{alias}* spawns with {first.name}.\n" + desc
+    e = style.embed(first.name, desc, color=0x9B59B6, url=first.url)
+    if first.portrait:
+        e.set_thumbnail(url=first.portrait)
+    fields = 0
+    for map_name, groups in ordered:
+        for modes, bm in groups:
+            if fields >= 24:
+                break
+            label = f"{map_name}  ·  {bm.chance}"
+            if len(groups) > 1 or modes != all_modes:
+                label = f"{map_name}  ·  {' / '.join(MODE_LABEL[m] for m in modes)}  ·  {bm.chance}"
+            e.add_field(name=label, value=_map_lines(bm, per_mode[modes[0]]), inline=False)
+            fields += 1
+    while len(e) > 5800 and e.fields:
+        e.remove_field(-1)
+    total = sum(len(g) for _, g in ordered)
+    extra = f"{len(e.fields)} of {total} entries" if len(e.fields) < total else ""
+    return style.footer(e, "tarkov.dev  ·  All modes", extra)
+
+
 class Game(commands.Cog):
     def __init__(self, bot: NerdBot) -> None:
         self.bot = bot
@@ -132,7 +179,7 @@ class Game(commands.Cog):
         await interaction.followup.send(embed=style.footer(e, "tarkov.dev", when=datetime.now(timezone.utc)))
 
     @app_commands.command(name="boss", description="Where a boss spawns, how often, and who they bring")
-    @app_commands.describe(name="Boss name (pick from the list or type part of it)", mode="Game mode (default PvP)")
+    @app_commands.describe(name="Boss name (pick from the list or type part of it)", mode="Game mode (default: all modes combined)")
     @app_commands.choices(mode=MODE_CHOICES)
     @app_commands.checks.cooldown(3, 15)
     async def boss(
@@ -145,24 +192,34 @@ class Game(commands.Cog):
 
         await interaction.response.defer()
         assert self.bot.store is not None
-        game_mode: GameMode = (mode.value if mode else "regular")  # type: ignore[assignment]
-        try:
-            book = await self.bot.store.bosses(game_mode)
-        except Exception as exc:
-            raise DataUnavailable("Couldn't load boss data from tarkov.dev. Try again in a minute.") from exc
-        found, candidates = book.resolve(name)
-        alias = None
-        if found is None and candidates:
-            hits = book.search(name, limit=1)
-            if hits and hits[0][1]:  # typed a guard's name, e.g. "Big Pipe"
-                found, alias = hits[0]
+        modes: list[GameMode] = [mode.value] if mode else list(MODE_LABEL)  # type: ignore[list-item]
+        store = self.bot.store
+        results = await asyncio.gather(*(store.bosses(m) for m in modes), return_exceptions=True)
+        books = {m: r for m, r in zip(modes, results) if not isinstance(r, BaseException)}
+        if not books:
+            raise DataUnavailable("Couldn't load boss data from tarkov.dev. Try again in a minute.") from results[0]  # type: ignore[arg-type]
+
+        found, alias, candidates, book = None, None, [], next(iter(books.values()))
+        for book in books.values():
+            found, candidates = book.resolve(name)
+            if found is None and candidates:
+                hits = book.search(name, limit=1)
+                if hits and hits[0][1]:  # typed a guard's name, e.g. "Big Pipe"
+                    found, alias = hits[0]
+            if found is not None:
+                break
         if found is None:
+            book = next(iter(books.values()))
             hint = ", ".join(f"**{b.name}**" for b in candidates) or ", ".join(book.names)
             await interaction.followup.send(
                 embed=style.error(f"No boss called **{style.truncate(name, 60)}**. Try: {hint}", title="No match")
             )
             return
-        await interaction.followup.send(embed=boss_embed(found, game_mode, alias))
+        if mode:
+            await interaction.followup.send(embed=boss_embed(found, modes[0], alias))
+            return
+        per_mode = {m: b.bosses[found.name] for m, b in books.items() if found.name in b.bosses}
+        await interaction.followup.send(embed=boss_embed_all(per_mode, alias))
 
     @boss.autocomplete("name")
     async def _boss_autocomplete(

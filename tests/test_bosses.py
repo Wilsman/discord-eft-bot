@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nerdbot.cogs.game import boss_embed
+from nerdbot.cogs.game import boss_embed, boss_embed_all
 from test_bot import check_embed
 
 
@@ -33,6 +33,24 @@ def test_boss_embeds_fit(boss_book):
         e = boss_embed(boss, "regular")
         check_embed(e)
         assert e.fields
+
+
+def test_combined_embed_merges_identical_modes(boss_book):
+    import copy
+
+    boss = next(iter(boss_book.bosses.values()))
+    same = boss_embed_all({"regular": boss, "pve": copy.deepcopy(boss)})
+    check_embed(same)
+    assert len(same.fields) == len(boss.maps)
+    assert "PvE" not in "".join(f.name for f in same.fields)
+
+    other = copy.deepcopy(boss)
+    other.maps[0].chance_low = other.maps[0].chance_high = 0.01
+    diff = boss_embed_all({"regular": boss, "pve": other})
+    check_embed(diff)
+    names = [f.name for f in diff.fields]
+    assert len(names) == len(boss.maps) + 1
+    assert any("PvP" in n for n in names) and any("PvE" in n for n in names)
 
 
 def test_zone_fallback_names():
