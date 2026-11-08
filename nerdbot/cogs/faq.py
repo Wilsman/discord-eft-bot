@@ -156,7 +156,7 @@ class Faq(commands.Cog):
             value="`/faq` anything about the circle\nor just @mention me with a question",
             inline=False,
         )
-        e.add_field(name="Game", value="`/status` EFT servers  ·  `/boss` spawns and guards  ·  `/bosses` latest spawn changes", inline=False)
+        e.add_field(name="Game", value="`/status` EFT servers  ·  `/traders` restock timers  ·  `/boss` spawns and guards  ·  `/goons` last sighting  ·  `/bosses` latest spawn changes", inline=False)
         e.add_field(
             name="Quick commands",
             value=f"`{p}thresholds [total]`  `{p}price <item> [pve]`  `{p}hot`  `{p}faq <question>`  `{p}help`",

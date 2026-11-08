@@ -60,8 +60,17 @@ class Boss:
 
 
 @dataclass(slots=True)
+class GoonReport:
+    """A player report of where the Goons (Knight, Big Pipe, Birdeye) were seen."""
+
+    map_name: str
+    seen_at: datetime
+
+
+@dataclass(slots=True)
 class BossBook:
     bosses: dict[str, Boss]
+    goon_reports: list[GoonReport] = field(default_factory=list)  # newest first
     loaded_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     _keys: list[str] = field(default_factory=list)
     _owners: list[str] = field(default_factory=list)
@@ -146,14 +155,17 @@ def build_bosses(maps_raw: bytes, translations_raw: bytes) -> BossBook:
     spawns: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     raid_secs: dict[str, int] = {}
     mob_ids: dict[str, list[str]] = defaultdict(list)
-    for m in (doc.get("maps") or {}).values():
+    map_names: dict[str, str] = {}
+    for map_id, m in (doc.get("maps") or {}).items():
         map_name = tr.get(m.get("name"), m.get("normalizedName") or "?")
+        map_names[m.get("id") or map_id] = map_name
         raid_secs[map_name] = int(m.get("raidDuration") or 0) * 60
         for entry in m.get("bosses") or ():
             boss = name_of(entry.get("mob"))
             spawns[boss][map_name].append(entry)
             if entry.get("mob") not in mob_ids[boss]:
                 mob_ids[boss].append(entry["mob"])
+    goons = _goon_reports(doc.get("goonReports") or (), map_names)
     del doc
 
     bosses: dict[str, Boss] = {}
@@ -208,4 +220,18 @@ def build_bosses(maps_raw: bytes, translations_raw: bytes) -> BossBook:
     # Escorts that are bosses in their own right shouldn't redirect elsewhere.
     for boss in bosses.values():
         boss.aliases -= bosses.keys()
-    return BossBook(bosses)
+    return BossBook(bosses, goon_reports=goons)
+
+
+def _goon_reports(raw: Any, map_names: dict[str, str]) -> list[GoonReport]:
+    reports = []
+    for r in raw:
+        try:
+            seen = datetime.fromtimestamp(int(r.get("timestamp")) / 1000, tz=timezone.utc)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        name = map_names.get(r.get("map") or "")
+        if name:
+            reports.append(GoonReport(name, seen))
+    reports.sort(key=lambda g: g.seen_at, reverse=True)
+    return reports

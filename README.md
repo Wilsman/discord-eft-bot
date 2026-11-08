@@ -17,7 +17,9 @@ sacrifices and recipes mirror [cultistcircle.com](https://cultistcircle.com).
 | `/faq <question>` | Answers from the Cultist Circle FAQ. @mentioning the bot with a question works too. |
 | `/price <item>` | Flea, 24h average, trader buy and sell, per slot, base value. |
 | `/ammo <round>` | Ballistics plus the full caliber lineup by penetration. |
-| `/boss <name>` | Maps, spawn chance, spawn zones and guards for one boss (PvP, PvE or Season). |
+| `/boss <name> <mode>` | Maps, spawn chance, spawn zones and guards for one boss (PvP, PvE, Season or all modes). |
+| `/traders [mode]` | When each trader restocks next, as live countdowns. |
+| `/goons [mode]` | Where the Goons were last reported by players, plus their spawn chance per map. |
 | `/status`, `/bosses` | EFT server status and the latest boss spawn changes. |
 
 Quick prefix versions: `!thresholds [total]`, `!price <item> [pve]`, `!hot`, `!faq <question>`, `!help`.

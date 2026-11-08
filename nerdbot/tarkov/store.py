@@ -16,6 +16,7 @@ from .bosses import BossBook, build_bosses
 from .calibers import caliber_name
 from .models import AmmoStats, GameMode, Item, Offer
 from .search import ItemIndex
+from .traders import Restock, parse_restocks
 
 log = logging.getLogger(__name__)
 
@@ -204,6 +205,12 @@ class TarkovStore:
             gc.collect()
             log.info("Loaded %s boss data: %d bosses", mode, len(book.bosses))
             return book
+
+    async def restocks(self, mode: GameMode) -> list[Restock]:
+        """Next restock per trader. The feed is ~60 KB and ETag-checked on each call."""
+        raw = await self._small(f"{mode}/traders")
+        names = await self._small(f"{mode}/traders_en")
+        return parse_restocks(raw, names)
 
     def peek(self, mode: GameMode) -> Catalog | None:
         return self._catalogs.get(mode)

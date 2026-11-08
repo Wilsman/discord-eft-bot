@@ -36,6 +36,7 @@ def slim_maps(data: dict) -> dict:
     return {"data": {
         "maps": {k: {f: v for f, v in m.items() if f in map_keys} for k, m in data["maps"].items()},
         "mobs": {k: {f: v for f, v in m.items() if f in mob_keys} for k, m in data["mobs"].items()},
+        "goonReports": data.get("goonReports") or [],
     }}
 
 

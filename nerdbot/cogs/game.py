@@ -11,7 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from .. import style
-from ..tarkov import MODE_LABEL, Boss, BossMap, GameMode
+from ..tarkov import MODE_LABEL, Boss, BossMap, GameMode, GoonReport, Restock
 from ._common import MODE_CHOICES, mode_of
 
 if TYPE_CHECKING:
@@ -27,6 +27,8 @@ BOSS_LABELS = {
     "arenafighter": "Arena Fighter",
     "spawnChance": "spawn",
 }
+
+BOSS_MODE_CHOICES = [*MODE_CHOICES, app_commands.Choice(name="All modes", value="all")]
 
 
 def _pretty(value: Any) -> str:
@@ -140,6 +142,44 @@ def boss_embed_all(per_mode: dict[GameMode, Boss], alias: str | None = None) -> 
     return style.footer(e, "tarkov.dev  ·  All modes", extra)
 
 
+def restocks_embed(restocks: list[Restock], mode: GameMode, now: datetime | None = None) -> discord.Embed:
+    now = now or datetime.now(timezone.utc)
+    lines = []
+    for r in restocks:
+        if r.at is None:
+            when = "unknown"
+        elif r.at <= now:
+            when = "restocking now"
+        else:
+            stamp = int(r.at.timestamp())
+            when = f"<t:{stamp}:R>  ·  <t:{stamp}:t>"
+        lines.append(f"**{r.name}**  {when}")
+    desc = "\n".join(lines) or "No trader data right now."
+    e = style.embed("Trader restocks", desc, color=style.INFO, url="https://tarkov.dev/traders")
+    return style.footer(e, "tarkov.dev", MODE_LABEL[mode], "times in your timezone")
+
+
+def goons_embed(reports: list[GoonReport], knight: Boss | None, mode: GameMode, now: datetime | None = None) -> discord.Embed:
+    now = now or datetime.now(timezone.utc)
+    if reports:
+        latest = reports[0]
+        desc = f"Last reported on **{latest.map_name}** {style.relative(latest.seen_at)}"
+        if (now - latest.seen_at).total_seconds() > 24 * 3600:
+            desc += "\n-# No reports in the last day, so this may be out of date."
+    else:
+        desc = f"No recent sightings reported for {MODE_LABEL[mode]}."
+    e = style.embed("Goons tracker", desc, color=0x9B59B6, url="https://tarkov.dev/boss/knight")
+    if knight and knight.portrait:
+        e.set_thumbnail(url=knight.portrait)
+    if len(reports) > 1:
+        recent = "\n".join(f"{r.map_name}  ·  {style.relative(r.seen_at)}" for r in reports[:8])
+        e.add_field(name="Recent reports", value=recent, inline=False)
+    if knight and knight.maps:
+        chances = "\n".join(f"{bm.map_name}  ·  {bm.chance}" for bm in knight.maps)
+        e.add_field(name="Spawn chance", value=style.truncate(chances, 1024), inline=False)
+    return style.footer(e, "tarkov.dev player reports", MODE_LABEL[mode])
+
+
 class Game(commands.Cog):
     def __init__(self, bot: NerdBot) -> None:
         self.bot = bot
@@ -179,20 +219,21 @@ class Game(commands.Cog):
         await interaction.followup.send(embed=style.footer(e, "tarkov.dev", when=datetime.now(timezone.utc)))
 
     @app_commands.command(name="boss", description="Where a boss spawns, how often, and who they bring")
-    @app_commands.describe(name="Boss name (pick from the list or type part of it)", mode="Game mode (default: all modes combined)")
-    @app_commands.choices(mode=MODE_CHOICES)
+    @app_commands.describe(name="Boss name (pick from the list or type part of it)", mode="Game mode, or all modes combined")
+    @app_commands.choices(mode=BOSS_MODE_CHOICES)
     @app_commands.checks.cooldown(3, 15)
     async def boss(
         self,
         interaction: discord.Interaction,
         name: str,
-        mode: app_commands.Choice[str] | None = None,
+        mode: app_commands.Choice[str],
     ) -> None:
         from ..bot import DataUnavailable
 
         await interaction.response.defer()
         assert self.bot.store is not None
-        modes: list[GameMode] = [mode.value] if mode else list(MODE_LABEL)  # type: ignore[list-item]
+        single = mode.value in MODE_LABEL
+        modes: list[GameMode] = [mode.value] if single else list(MODE_LABEL)  # type: ignore[list-item]
         store = self.bot.store
         results = await asyncio.gather(*(store.bosses(m) for m in modes), return_exceptions=True)
         books = {m: r for m, r in zip(modes, results) if not isinstance(r, BaseException)}
@@ -215,7 +256,7 @@ class Game(commands.Cog):
                 embed=style.error(f"No boss called **{style.truncate(name, 60)}**. Try: {hint}", title="No match")
             )
             return
-        if mode:
+        if single:
             await interaction.followup.send(embed=boss_embed(found, modes[0], alias))
             return
         per_mode = {m: b.bosses[found.name] for m, b in books.items() if found.name in b.bosses}
@@ -239,6 +280,39 @@ class Game(commands.Cog):
             app_commands.Choice(name=f"{b.name} ({alias})" if alias else b.name, value=b.name)
             for b, alias in book.search(current, limit=25)
         ]
+
+    @app_commands.command(name="traders", description="When each trader restocks next")
+    @app_commands.describe(mode="Game mode (default PvP)")
+    @app_commands.choices(mode=MODE_CHOICES)
+    @app_commands.checks.cooldown(3, 15)
+    async def traders(self, interaction: discord.Interaction, mode: app_commands.Choice[str] | None = None) -> None:
+        from ..bot import DataUnavailable
+
+        await interaction.response.defer()
+        assert self.bot.store is not None
+        game_mode: GameMode = mode.value if mode else "regular"  # type: ignore[assignment]
+        try:
+            restocks = await self.bot.store.restocks(game_mode)
+        except Exception as exc:
+            raise DataUnavailable("Couldn't load trader data from tarkov.dev. Try again in a minute.") from exc
+        await interaction.followup.send(embed=restocks_embed(restocks, game_mode))
+
+    @app_commands.command(name="goons", description="Where the Goons were last reported, plus their spawn chances")
+    @app_commands.describe(mode="Game mode (default PvP)")
+    @app_commands.choices(mode=MODE_CHOICES)
+    @app_commands.checks.cooldown(3, 15)
+    async def goons(self, interaction: discord.Interaction, mode: app_commands.Choice[str] | None = None) -> None:
+        from ..bot import DataUnavailable
+
+        await interaction.response.defer()
+        assert self.bot.store is not None
+        game_mode: GameMode = mode.value if mode else "regular"  # type: ignore[assignment]
+        try:
+            # Reports come in all the time, so re-check sooner than /boss does.
+            book = await self.bot.store.bosses(game_mode, max_age_minutes=5)
+        except Exception as exc:
+            raise DataUnavailable("Couldn't load Goons data from tarkov.dev. Try again in a minute.") from exc
+        await interaction.followup.send(embed=goons_embed(book.goon_reports, book.bosses.get("Knight"), game_mode))
 
     @app_commands.command(name="bosses", description="Latest boss spawn chance changes")
     @app_commands.checks.cooldown(2, 20)
