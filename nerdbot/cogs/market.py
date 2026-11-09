@@ -11,7 +11,7 @@ from .. import style
 from ..circle.tiers import MAX_SLOTS, SIX_HOUR_THRESHOLD, tier_for
 from ..tarkov import MODE_LABEL, Catalog, Item
 from ..views import Reply, link_view
-from ._common import MODE_CHOICES, catalog_for, followup, item_choices, reply_for_item
+from ._common import MODE_CHOICES, catalog_for, followup, item_choices, reply_for_item, split_mode
 
 if TYPE_CHECKING:
     from ..bot import NerdBot
@@ -131,12 +131,7 @@ def item_links(item: Item) -> discord.ui.View:
     return link_view(("tarkov.dev", item.link or ""), ("Wiki", item.wiki or ""))
 
 
-def _split_mode(text: str) -> tuple[str, str]:
-    words = text.split()
-    aliases = {"pve": "pve", "pvp": "regular", "season": "pvp-season"}
-    if len(words) > 1 and words[-1].lower() in aliases:
-        return " ".join(words[:-1]), aliases[words[-1].lower()]
-    return text, "regular"
+_split_mode = split_mode  # kept for older imports
 
 
 class Market(commands.Cog):

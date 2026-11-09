@@ -15,6 +15,7 @@ class Settings:
     refresh_minutes: int = 15
     json_api: str = "https://json.tarkov.dev"
     boss_api: str = "https://bossdata.cultistcircle.workers.dev"
+    recipes_api: str = "https://cultist-circle-feedback.cultistcircle.workers.dev"
     log_level: str = "INFO"
 
 

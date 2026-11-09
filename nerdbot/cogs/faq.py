@@ -146,7 +146,7 @@ class Faq(commands.Cog):
                 "`/circle check` total up your own combo\n"
                 "`/circle value` one item's base value by copies\n"
                 "`/circle hot` community-tested weapon combos\n"
-                "`/circle recipes` figurines and other fixed recipes"
+                "`/recipe` figurine and other recipes, with votes and prices"
             ),
             inline=False,
         )
@@ -159,7 +159,7 @@ class Faq(commands.Cog):
         e.add_field(name="Game", value="`/status` EFT servers  ·  `/traders` restock timers  ·  `/boss` spawns and guards  ·  `/goons` last sighting  ·  `/bosses` latest spawn changes", inline=False)
         e.add_field(
             name="Quick commands",
-            value=f"`{p}thresholds [total]`  `{p}price <item> [pve]`  `{p}hot`  `{p}faq <question>`  `{p}help`",
+            value=f"`{p}thresholds [total]`  `{p}price <item> [pve]`  `{p}hot`  `{p}recipe <item>`  `{p}faq <question>`  `{p}help`",
             inline=False,
         )
         return style.footer(e, f"NerdBot v{__version__}")

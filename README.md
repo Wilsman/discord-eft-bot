@@ -13,7 +13,7 @@ sacrifices and recipes mirror [cultistcircle.com](https://cultistcircle.com).
 | `/circle check <combo>` | Total up a combo like `2x moonshine + 1 graphics card`. |
 | `/circle value <item>` | Base value for 1 to 5 copies and the timer each lands on. |
 | `/circle hot` | Community-tested weapon combos with live cost estimates. |
-| `/circle recipes [search]` | Fixed-outcome recipes (figurines, keys and so on). |
+| `/recipe <search> [mode]` | Cultist Circle recipes, live from cultistcircle.com, with community worked/didn't-work votes, live input cost, reward value and profit. Hides recipes that don't apply to the chosen mode. |
 | `/faq <question>` | Answers from the Cultist Circle FAQ. @mentioning the bot with a question works too. |
 | `/price <item>` | Flea, 24h average, trader buy and sell, per slot, base value. |
 | `/ammo <round>` | Ballistics plus the full caliber lineup by penetration. |
@@ -22,7 +22,7 @@ sacrifices and recipes mirror [cultistcircle.com](https://cultistcircle.com).
 | `/goons [mode]` | Where the Goons were last reported by players, plus their spawn chance per map. |
 | `/status`, `/bosses` | EFT server status and the latest boss spawn changes. |
 
-Quick prefix versions: `!thresholds [total]`, `!price <item> [pve]`, `!hot`, `!faq <question>`, `!help`.
+Quick prefix versions: `!thresholds [total]`, `!price <item> [pve]`, `!hot`, `!recipe <item> [pve]`, `!faq <question>`, `!help`.
 Most slash commands take a `mode` option: PvP, PvE or PvP Season.
 
 The **Message Content** intent must be enabled for the bot in the Discord developer

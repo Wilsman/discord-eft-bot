@@ -27,6 +27,15 @@ async def catalog_for(bot: NerdBot, mode: str | None) -> Catalog:
         raise DataUnavailable("Market data isn't loaded yet. Give it a minute and try again.") from exc
 
 
+def split_mode(text: str) -> tuple[str, str]:
+    """Pull a trailing 'pve', 'pvp' or 'season' off prefix command text."""
+    words = text.split()
+    aliases = {"pve": "pve", "pvp": "regular", "season": "pvp-season"}
+    if len(words) > 1 and words[-1].lower() in aliases:
+        return " ".join(words[:-1]), aliases[words[-1].lower()]
+    return text, "regular"
+
+
 def mode_of(interaction: discord.Interaction) -> GameMode:
     value = getattr(interaction.namespace, "mode", None)
     return value if value in MODE_LABEL else "regular"  # type: ignore[return-value]
@@ -114,4 +123,5 @@ __all__ = [
     "lookup",
     "mode_of",
     "reply_for_item",
+    "split_mode",
 ]

@@ -8,9 +8,9 @@ import discord
 import pytest
 
 from nerdbot.bot import EXTENSIONS, NerdBot
-from nerdbot.circle.knowledge import FAQ, HOT_SACRIFICES, RECIPES
+from nerdbot.circle.knowledge import FAQ, HOT_SACRIFICES
 from nerdbot.circle.planner import PlanOptions, plan
-from nerdbot.cogs.circle import hot_embed, parse_combo, recipe_pages, thresholds_reply
+from nerdbot.cogs.circle import hot_embed, parse_combo, thresholds_reply
 from nerdbot.cogs.market import _split_mode, ammo_embed, price_embed
 from nerdbot.config import Settings
 
@@ -65,13 +65,13 @@ async def test_slash_commands_serialize(bot):
             assert len(opt["description"]) <= 100, opt
             for sub in opt.get("options", []):
                 assert len(sub["description"]) <= 100, sub
-    assert {"price", "ammo", "thresholds", "circle", "faq", "help", "status", "bosses", "boss", "traders", "goons"} <= names
+    assert {"price", "ammo", "thresholds", "circle", "faq", "help", "status", "bosses", "boss", "traders", "goons", "recipe"} <= names
     circle = bot.tree.get_command("circle")
-    assert {c.name for c in circle.commands} == {"cheapest", "check", "value", "hot", "recipes"}
+    assert {c.name for c in circle.commands} == {"cheapest", "check", "value", "hot"}
 
 
 async def test_prefix_commands_registered(bot):
-    assert {c.name for c in bot.commands} >= {"thresholds", "price", "hot", "faq", "help"}
+    assert {c.name for c in bot.commands} >= {"thresholds", "price", "hot", "faq", "help", "recipe"}
     assert bot.get_command("ask") is not None and bot.get_command("threshold") is not None
 
 
@@ -130,15 +130,11 @@ async def test_check_and_value(bot, catalog):
         check_embed(cog._value_embed(item or cands[0], catalog))
 
 
-def test_hot_and_recipes(catalog):
+def test_hot(catalog):
     e = hot_embed(catalog)
     check_embed(e)
     assert len(e.fields) == len(HOT_SACRIFICES)
     assert "Est. cost **~" in e.fields[0].value
-    pages = recipe_pages(list(RECIPES), "Recipes")
-    assert sum(len(p.fields) for p in pages) == len(RECIPES)
-    for p in pages:
-        check_embed(p)
 
 
 async def test_faq_answers(bot):

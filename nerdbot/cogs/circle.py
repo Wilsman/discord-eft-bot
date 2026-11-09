@@ -9,16 +9,15 @@ from typing import TYPE_CHECKING
 import discord
 from discord import app_commands
 from discord.ext import commands
-from rapidfuzz import fuzz, utils
 
 from .. import style
 from ..circle.card import render_thresholds
-from ..circle.knowledge import HOT_SACRIFICES, RECIPES, RECIPES_URL, SITE, HotSacrifice, Recipe
+from ..circle.knowledge import HOT_SACRIFICES, SITE, HotSacrifice
 from ..circle.optimizer import Combo
 from ..circle.planner import PlanOptions, eligible, plan
 from ..circle.tiers import HIGH_TIER_THRESHOLD, MAX_SLOTS, SIX_HOUR_THRESHOLD, outcome, tier_for
 from ..tarkov import MODE_LABEL, Catalog, Item
-from ..views import Pager, Reply, link_view
+from ..views import Reply, link_view
 from ._common import MODE_CHOICES, catalog_for, followup, item_choices, lookup, reply_for_item
 
 if TYPE_CHECKING:
@@ -146,45 +145,6 @@ def _hot_field(combo: HotSacrifice, catalog: Catalog) -> dict[str, str]:
     est = f"~{style.rub(total)}" if total and known else "n/a"
     prefix = "Featured  ·  " if combo.featured else ""
     return {"name": f"{prefix}{title}  ·  {combo.result}", "value": "\n".join(lines) + f"\nEst. cost **{est}**"}
-
-
-# ---------------------------------------------------------------- recipes
-
-def recipe_line(r: Recipe) -> tuple[str, str]:
-    name = " + ".join(r.inputs)
-    flags = [r.time]
-    if r.pvp_only:
-        flags.append("PvP only")
-    if r.repeatable:
-        flags.append("repeatable")
-    value = "→ " + ", ".join(r.outputs) + "\n└ " + "  ·  ".join(flags)
-    if r.note:
-        value += f"\n*{r.note}*"
-    return style.truncate(name, 256), style.truncate(value, 1024)
-
-
-def search_recipes(query: str) -> list[Recipe]:
-    q = utils.default_process(query)
-    scored = []
-    for r in RECIPES:
-        hay = utils.default_process(" ".join(r.inputs + r.outputs))
-        score = 100 if q in hay else fuzz.partial_token_set_ratio(q, hay)
-        if score >= 80:
-            scored.append((score, r))
-    scored.sort(key=lambda s: -s[0])
-    return [r for _, r in scored]
-
-
-def recipe_pages(recipes: list[Recipe], title: str) -> list[discord.Embed]:
-    pages = []
-    per_page = 8
-    for start in range(0, len(recipes), per_page):
-        e = style.embed(title, f"Fixed-outcome sacrifices. Full list: {RECIPES_URL}", color=style.ACCENT)
-        for r in recipes[start : start + per_page]:
-            name, value = recipe_line(r)
-            e.add_field(name=name, value=value, inline=False)
-        pages.append(style.footer(e, "cultistcircle.com/recipes"))
-    return pages
 
 
 class Circle(commands.Cog):
@@ -419,34 +379,6 @@ class Circle(commands.Cog):
         """!hot [pve]"""
         catalog = await catalog_for(self.bot, "pve" if mode.lower() == "pve" else "regular")
         await ctx.reply(embed=hot_embed(catalog), view=link_view(("Open calculator", SITE)), mention_author=False)
-
-    # ------------------------------------------------------------ /circle recipes
-
-    @circle.command(name="recipes", description="Fixed-outcome recipes, like figurines and keys")
-    @app_commands.describe(search="Optional: an item to look for in inputs or rewards")
-    async def recipes(self, interaction: discord.Interaction, search: str | None = None) -> None:
-        found = search_recipes(search) if search else list(RECIPES)
-        if not found:
-            await interaction.response.send_message(
-                embed=style.error(f"No recipe uses or gives **{style.truncate(search or '', 80)}**.", "No recipes found"),
-                ephemeral=True,
-            )
-            return
-        title = f"Recipes matching \"{style.truncate(search, 60)}\"" if search else "Cultist Circle recipes"
-        pages = recipe_pages(found, title)
-        if len(pages) == 1:
-            await interaction.response.send_message(embed=pages[0])
-            return
-        view = Pager(pages, interaction.user.id)
-        await interaction.response.send_message(embed=pages[0], view=view)
-        view.message = await interaction.original_response()
-
-    @recipes.autocomplete("search")
-    async def _recipe_search(self, interaction: discord.Interaction, current: str):
-        names = sorted({n.split("x ", 1)[-1] if re.match(r"^\d+x ", n) else n for r in RECIPES for n in r.inputs})
-        if current:
-            names = [n for n in names if current.lower() in n.lower()] or names
-        return [app_commands.Choice(name=style.truncate(n, 100), value=style.truncate(n, 100)) for n in names[:25]]
 
 
 async def setup(bot: NerdBot) -> None:

@@ -11,6 +11,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from . import __version__, style
+from .circle.recipes import RecipeSource
 from .config import Settings
 from .tarkov import TarkovStore
 
@@ -19,6 +20,7 @@ log = logging.getLogger("nerdbot")
 EXTENSIONS = (
     "nerdbot.cogs.market",
     "nerdbot.cogs.circle",
+    "nerdbot.cogs.recipes",
     "nerdbot.cogs.faq",
     "nerdbot.cogs.game",
 )
@@ -43,11 +45,13 @@ class NerdBot(commands.Bot):
         self.settings = settings
         self.session: aiohttp.ClientSession | None = None
         self.store: TarkovStore | None = None
+        self.recipes: RecipeSource | None = None
         self.tree.on_error = self.on_app_command_error
 
     async def setup_hook(self) -> None:
         self.session = aiohttp.ClientSession()
         self.store = TarkovStore(self.session, self.settings.json_api)
+        self.recipes = RecipeSource(self.session, self.settings.recipes_api)
         for mode in ("regular", "pve"):
             try:
                 await self.store.get(mode)
@@ -138,6 +142,10 @@ class NerdBot(commands.Bot):
             return
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.reply(f"Usage: `{ctx.clean_prefix}{ctx.command.qualified_name} {ctx.command.signature}`", mention_author=False)
+            return
+        original = getattr(error, "original", error)
+        if isinstance(original, DataUnavailable):
+            await ctx.reply(embed=style.error(str(original)), mention_author=False)
             return
         log.exception("Prefix command %s failed", ctx.command, exc_info=error)
         await ctx.reply(embed=style.error("Something broke on my end. It's been logged."), mention_author=False)

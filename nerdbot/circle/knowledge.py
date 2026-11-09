@@ -3,7 +3,6 @@
 Sources in the cultist-circle repo (update these together):
   app/faq/page.tsx                    -> FAQ
   components/hot-sacrifices-panel.tsx -> HOT_SACRIFICES
-  data/recipes.ts                     -> RECIPES
   config/excluded-items.ts            -> INCOMPATIBLE_ITEMS
   config/ritual-exclusions.ts         -> SIX_HOUR_EXCLUSIONS
   config/item-categories.ts           -> DEFAULT_EXCLUDED_CATEGORIES
@@ -11,7 +10,7 @@ Sources in the cultist-circle repo (update these together):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 SITE = "https://cultistcircle.com"
 FAQ_URL = f"{SITE}/faq"
@@ -154,7 +153,7 @@ FAQ: tuple[FaqEntry, ...] = (
         "Item & Category Issues",
         "What is the Recipes page?",
         f"A dedicated page with every known fixed recipe and its outcome: {RECIPES_URL}\n"
-        "Some only work once per profile or have conditions. Search them with `/circle recipes`.",
+        "Some only work once per profile or have conditions. Search them with `/recipe`.",
         ("recipe", "figurine", "fixed reward", "guaranteed", "special recipe", "craft",
          "figurine give", "what do figurine"),
     ),
@@ -273,97 +272,6 @@ HOT_SACRIFICES: tuple[HotSacrifice, ...] = (
         barter=True,
         disabled=True,
     ),
-)
-
-
-@dataclass(frozen=True, slots=True)
-class Recipe:
-    inputs: tuple[str, ...]
-    time: str
-    outputs: tuple[str, ...]
-    note: str = ""
-    pvp_only: bool = False
-    repeatable: bool = False
-    tags: frozenset[str] = field(default_factory=frozenset)
-
-
-def _r(inputs, time, outputs, note="", **kw) -> Recipe:
-    as_tuple = lambda v: (v,) if isinstance(v, str) else tuple(v)  # noqa: E731
-    return Recipe(as_tuple(inputs), time, as_tuple(outputs), note, **kw)
-
-
-RECIPES: tuple[Recipe, ...] = (
-    _r("5x BD dogtag •| Ferrum", "5:55:55", "1x Briefcase with documents",
-       "Launcher promo recipe. Reports say it may no longer work; only redeem-code BD dogtags ever did."),
-    _r(["1x Christmas tree ornament (Silver)", "1x Christmas tree ornament (Red)", "1x Christmas tree ornament (Violet)"],
-       "66 mins", "2x Ded Moroz figurine"),
-    _r("1x Jaeger figurine", "66 mins", ["1x MTs-255-12 12ga shotgun", "1x Salty Dog beef sausage"]),
-    _r("1x Lightkeeper figurine", "66 mins", "1x Sacred Amulet"),
-    _r("1x Ragman figurine", "66 mins",
-       ["Shemagh (Green)", "Round frame sunglasses", "RayBench Hipster Reserve sunglasses", "Ghost balaclava"],
-       "Always 4 items from this pool, duplicates possible."),
-    _r("1x BTR figurine", "66 mins", "1x OFZ 30x165mm shell"),
-    _r("1x Hideout Cat figurine", "66 mins", "1x Cat figurine"),
-    _r("1x Duck figurine", "66 mins", "5x Can of duck pate", pvp_only=True),
-    _r("5x Can of duck pate", "66 mins", "1x Duck figurine"),
-    _r("1x Labrys research notes", "66 mins", "1x Labrys access keycard"),
-    _r("1x Elvisvista figurine", "66 mins", ["1x Elvisvista figurine", "1x Baseball cap"]),
-    _r("1x Fence figurine", "66 mins", "3x Fence figurine"),
-    _r("1x Mechanic figurine", "66 mins", ["2x Screw nuts", "1x Leatherman Multitool"]),
-    _r("1x Peacekeeper figurine", "66 mins", ["2x MF-UNTAR body armor", "or 1x MF-UNTAR body armor + 1x UNTAR helmet"]),
-    _r("1x Prapor figurine", "66 mins", "1x 42 Signature Blend English Tea"),
-    _r("1x Skier figurine", "66 mins", ["1x Pompon hat", "1x Broken GPhone smartphone"]),
-    _r("1x Therapist figurine", "66 mins", "1x Salewa first aid kit"),
-    _r("1x Walking Tank figurine", "66 mins", ["2x BNTI Module-3M body armor", "2x Kalashnikov AK-74 5.45x39 assault rifle"]),
-    _r("1x Mastichin figurine", "66 mins", ["1x Voron's Hideout key", "1x Note with code word Voron", "1x Raven"]),
-    _r("1x 6-STEN-140-M military battery", "66 mins", "1x Old house toilet key",
-       "The toilet key room has a 100% spawn for the 6-STEN-140-M battery."),
-    _r("1x Domontovich ushanka hat", "66 mins",
-       ["1x Supply department director's office key", "1x ZiD SP-81 26x75 signal pistol", "1x Bottle of Dan Jackiel whiskey"]),
-    _r("1x Nut sack", "66 mins", ["SSh-68 helmet, BOSS cap, Ushanka and beanie mixes"], "Two known headwear outcomes."),
-    _r("1x Christmas tree ornament (Red)", "66 mins", "1x Christmas tree ornament (Silver)"),
-    _r("1x Christmas tree ornament (Silver)", "66 mins", "1x Christmas tree ornament (Violet)"),
-    _r("1x Christmas tree ornament (Violet)", "66 mins", "1x Christmas tree ornament (Red)"),
-    _r("1x Tigzresq splint", "66 mins", "1x Golden egg"),
-    _r("1x Mazoni golden dumbbell", "66 mins", "1x Mazoni golden dumbbell"),
-    _r("1x Augmentin antibiotic pills", "66 mins", "1x xTG-12 antidote injector"),
-    _r("1x Pumpkin with sweets", "66 mins", "1x Jack-o'-lantern tactical pumpkin helmet"),
-    _r("1x Jack-o'-lantern tactical pumpkin helmet", "66 mins", ["Random foods", "Random drinks"]),
-    _r("1x WD-40 (400ml)", "66 mins", "WD-40 (100ml)"),
-    _r("1x Bottle of water (0.6L)", "66 mins", "Fleece fabric"),
-    _r(["1x Nailhead figurine", "1x Xenoalien figurine", "1x Pointy guy figurine", "1x Petya Crooker figurine",
-        "1x Count Bloodsucker figurine"], "66 mins", "Tagilla's welding mask \"ZABEY\" (Replica)"),
-    _r("1x Nailhead figurine", "66 mins", "Pack of nails"),
-    _r("1x Xenoalien figurine", "66 mins", "Xenomorph sealing foam"),
-    _r("1x Pointy guy figurine", "66 mins", "Rusty bloody key"),
-    _r("1x Petya Crooker figurine", "66 mins", "Video cassette with the Cyborg Killer movie"),
-    _r("1x Count Bloodsucker figurine", "66 mins", "Medical bloodset"),
-    _r("Secure container Gamma (The Unheard Edition)", "6 mins", "Secure container Gamma (Edge of Darkness Edition)"),
-    _r("Secure container Kappa", "66 mins", "Secure container Kappa (Desecrated)"),
-    _r("1x Cultist figurine", "66 mins", "Spooky skull mask"),
-    _r("5x Cultist figurine", "666 mins", "Cultist knife"),
-    _r("Killa figurine", "66 mins", ["Maska-1SCh bulletproof helmet (Killa Edition)", "Maska-1SCh face shield (Killa Edition)"]),
-    _r("Tagilla figurine", "66 mins", ["Tagilla's welding mask \"Gorilla\" or \"UBEY\""], "One mask, random."),
-    _r("Reshala figurine", "66 mins", "TT-33 7.62x25 TT pistol (Golden)"),
-    _r("Den figurine", "66 mins", ["Deadlyslob's beard oil", "Baddie's red beard"], "Always 2 items: oil and/or beard."),
-    _r("Politician Mutkevich figurine", "66 mins", "3x Bottle of Tarkovskaya vodka"),
-    _r("Scav figurine", "66 mins", ["Scav backpack", "Scav Vest"], "Always 2 items: backpack and/or vest."),
-    _r("Ryzhy figurine", "66 mins", ["Obdolbos cocktail injector", "Pack of sugar"]),
-    _r("BEAR operative figurine", "66 mins", "Grizzly medical kit"),
-    _r("USEC operative figurine", "66 mins", "HighCom Trooper TFO body armor (MultiCam)"),
-    _r("Mr Kerman's cat hologram", "66 mins", ["Mr Kerman's cat hologram", "TerraGroup Labs access keycard"]),
-    _r("Ded Moroz figurine", "66 mins", "Santa's Bag"),
-    _r("Relaxation room key", "66 mins", "Bottle of Fierce Hatchling moonshine"),
-    _r("Dundukk sport sunglasses", "66 mins", "Axel parrot figurine"),
-    _r("Soap", "66 mins", "Awl"),
-    _r("Zarya stun grenade", "66 mins", "2x Light bulb"),
-    _r("Physical Bitcoin", "666 mins", ["2x GreenBat lithium battery", "2x Tetriz portable game console"]),
-    _r("LEDX Skin Transilluminator", "666 mins", "TerraGroup \"Blue Folders\" materials"),
-    _r("1x Left half of a Physical Bitcoin", "666 seconds", "1x Right half of a Physical Bitcoin", repeatable=True),
-    _r("1x Right half of a Physical Bitcoin", "666 seconds", "1x Left half of a Physical Bitcoin", repeatable=True),
-    _r(["1x Left half of a Physical Bitcoin", "1x Right half of a Physical Bitcoin"], "666 seconds",
-       "1x Physical Bitcoin", repeatable=True),
-    _r("1x Secure container Gamma (Loui Peeton)", "66 mins", "1x Secure container Gamma (Loui Peeton)", repeatable=True),
 )
 
 # Items the circle refuses outright.
