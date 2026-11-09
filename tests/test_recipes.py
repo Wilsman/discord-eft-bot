@@ -113,13 +113,23 @@ def test_list_pages(book):
 
 
 async def test_reply_kinds(book, catalog):
-    embed, view = recipe_reply(book, catalog, "figurine", 1)
-    assert isinstance(view, RecipeBrowser) and len(view.picker.options) <= 25
-    embed, view = recipe_reply(book, catalog, "Wedge figurine Black Division Team Leader Operator", 1)
-    assert view is not None
-    embed, view = recipe_reply(book, catalog, "zzzqqqxx", 1)
-    assert view is None and embed.title == "No recipes found"
+    reply = await recipe_reply(book, catalog, "figurine", 1)
+    assert isinstance(reply["view"], RecipeBrowser) and len(reply["view"].picker.options) <= 25
+    reply = await recipe_reply(book, catalog, "Wedge figurine Black Division Team Leader Operator", 1)
+    assert reply.get("view") is not None
+    reply = await recipe_reply(book, catalog, "zzzqqqxx", 1)
+    assert "view" not in reply and reply["embed"].title == "No recipes found"
     one = [r for r in book.active if len(search(book, r.inputs[0], "regular")) == 1]
     if one:
-        _, view = recipe_reply(book, catalog, one[0].inputs[0], 1)
-        assert isinstance(view, RecipeCardView)
+        reply = await recipe_reply(book, catalog, one[0].inputs[0], 1)
+        assert isinstance(reply["view"], RecipeCardView)
+        assert "file" not in reply  # no session, so no picture
+
+
+def test_render_picture_offline():
+    from nerdbot.circle.recipe_art import Tile, render_recipe
+
+    many = [Tile(1, f"Item {i}", None) for i in range(9)]
+    png = render_recipe([Tile(5, "BD dogtag", None)], many, {}, random=True)
+    assert png.startswith(b"\x89PNG")
+    assert render_recipe([Tile(1, "Thing", None)], [], {}).startswith(b"\x89PNG")

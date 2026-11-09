@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+import io
+import logging
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -21,12 +25,15 @@ from ..circle.recipes import (
     reward_worth,
     search,
 )
+from ..circle.recipe_art import Tile, load_icons, render_recipe
 from ..tarkov import MODE_LABEL, MODES, Catalog, GameMode
-from ..views import OwnedView
+from ..views import OwnedView, Reply, edit_kwargs
 from ._common import MODE_CHOICES, catalog_for, split_mode
 
 if TYPE_CHECKING:
     from ..bot import NerdBot
+
+log = logging.getLogger("nerdbot.recipes")
 
 PER_PAGE = 8
 
@@ -164,7 +171,40 @@ def list_pages(found: Sequence[LiveRecipe], query: str, mode: GameMode) -> list[
     return pages
 
 
+# ---------------------------------------------------------------- picture
+
+def _tile(p: Priced, count: int | None = None) -> Tile:
+    url = (p.item.image or p.item.icon) if p.item else None
+    return Tile(p.count if count is None else count, p.text, url)
+
+
+async def card_reply(r: LiveRecipe, catalog: Catalog, session: aiohttp.ClientSession | None) -> Reply:
+    """The recipe card, plus a picture of its icons when we can reach the icon CDN."""
+    embed = recipe_card(r, catalog)
+    if session is None or session.closed:
+        return {"embed": embed}
+    inputs = [_tile(p) for p in price_entries(catalog, r.inputs, buying=True)]
+    if r.rewards:
+        rewards = [_tile(p) for p in price_entries(catalog, r.rewards, buying=False)]
+    else:
+        seen: dict[str, Tile] = {}
+        for p in price_entries(catalog, r.reward_names, buying=False):
+            seen.setdefault(p.text, _tile(p, count=1))
+        rewards = list(seen.values())
+    try:
+        icons = await load_icons(session, inputs + rewards)
+        png = await asyncio.to_thread(render_recipe, inputs, rewards, icons, not r.rewards)
+    except Exception:
+        log.warning("Couldn't draw recipe picture", exc_info=True)
+        return {"embed": embed}
+    embed.set_image(url="attachment://recipe.png")
+    return {"embed": embed, "file": discord.File(io.BytesIO(png), filename="recipe.png")}
+
+
 # ---------------------------------------------------------------- views
+
+CardRender = Callable[[LiveRecipe], Awaitable[Reply]]
+
 
 class RecipeCardView(OwnedView):
     """A recipe card, with a way back to the list it came from."""
@@ -181,16 +221,18 @@ class RecipeCardView(OwnedView):
         assert self.back_to is not None
         self.back_to.message = self.message
         self.back_to.sync()
-        await interaction.response.edit_message(embed=self.back_to.pages[self.back_to.index], view=self.back_to)
+        await interaction.response.edit_message(
+            embed=self.back_to.pages[self.back_to.index], view=self.back_to, attachments=[]
+        )
         self.stop()
 
 
 class RecipeBrowser(OwnedView):
-    def __init__(self, found: Sequence[LiveRecipe], pages: list[discord.Embed], catalog: Catalog, owner_id: int) -> None:
+    def __init__(self, found: Sequence[LiveRecipe], pages: list[discord.Embed], render: CardRender, owner_id: int) -> None:
         super().__init__(owner_id, timeout=300)
         self.found = list(found)
         self.pages = pages
-        self.catalog = catalog
+        self.render = render
         self.index = 0
         self.picker = discord.ui.Select(placeholder="Open a recipe", row=0)
         self.picker.callback = self._picked
@@ -217,9 +259,12 @@ class RecipeBrowser(OwnedView):
 
     async def _picked(self, interaction: discord.Interaction) -> None:
         recipe = self.found[int(self.picker.values[0])]
+        await interaction.response.defer()
         card = RecipeCardView(recipe, self.owner_id, back=self)
         card.message = self.message
-        await interaction.response.edit_message(embed=recipe_card(recipe, self.catalog), view=card)
+        reply = await self.render(recipe)
+        reply["view"] = card
+        await interaction.edit_original_response(**edit_kwargs(reply))
 
     @discord.ui.button(label="Prev", style=discord.ButtonStyle.secondary, row=1)
     async def prev(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -238,9 +283,10 @@ class RecipeBrowser(OwnedView):
         await interaction.response.edit_message(embed=self.pages[self.index], view=self)
 
 
-def recipe_reply(
-    book: RecipeBook, catalog: Catalog, query: str, owner_id: int
-) -> tuple[discord.Embed, OwnedView | None]:
+async def recipe_reply(
+    book: RecipeBook, catalog: Catalog, query: str, owner_id: int, session: aiohttp.ClientSession | None = None
+) -> Reply:
+    """send() kwargs for a search: a card for one match, a pick list for several, or an error."""
     found = search(book, query, catalog.mode)
     if not found:
         other = {RESTRICTION_LABEL.get(r.restriction or "", "") for m in MODES for r in search(book, query, m)} - {""}
@@ -249,11 +295,17 @@ def recipe_reply(
             f"No recipe uses or gives **{style.truncate(query, 80)}**.{hint}\nFull list: {RECIPES_URL}",
             "No recipes found",
         )
-        return e, None
+        return {"embed": e}
+
+    async def render(r: LiveRecipe) -> Reply:
+        return await card_reply(r, catalog, session)
+
     if len(found) == 1:
-        return recipe_card(found[0], catalog), RecipeCardView(found[0], owner_id)
+        reply = await render(found[0])
+        reply["view"] = RecipeCardView(found[0], owner_id)
+        return reply
     pages = list_pages(found, query, catalog.mode)
-    return pages[0], RecipeBrowser(found, pages, catalog, owner_id)
+    return {"embed": pages[0], "view": RecipeBrowser(found, pages, render, owner_id)}
 
 
 # ---------------------------------------------------------------- cog
@@ -262,14 +314,17 @@ class Recipes(commands.Cog):
     def __init__(self, bot: NerdBot) -> None:
         self.bot = bot
 
+    @property
+    def source(self) -> RecipeSource | None:
+        return getattr(self.bot, "recipes", None)
+
     async def book(self) -> RecipeBook:
         from ..bot import DataUnavailable
 
-        source: RecipeSource | None = getattr(self.bot, "recipes", None)
-        if source is None:
+        if self.source is None:
             raise DataUnavailable("Recipes aren't loaded yet. Give it a minute and try again.")
         try:
-            return await source.get()
+            return await self.source.get()
         except Exception as exc:
             raise DataUnavailable("Couldn't reach cultistcircle.com for recipes. Try again in a minute.") from exc
 
@@ -286,18 +341,22 @@ class Recipes(commands.Cog):
         await interaction.response.defer()
         book = await self.book()
         catalog = await catalog_for(self.bot, mode.value if mode else None)
-        embed, view = recipe_reply(book, catalog, search, interaction.user.id)
-        if view is None:
-            await interaction.followup.send(embed=embed)
-            return
-        view.message = await interaction.followup.send(embed=embed, view=view, wait=True)
+        reply = await recipe_reply(book, catalog, search, interaction.user.id, self.bot.session)
+        msg = await interaction.followup.send(**reply, wait=True)
+        if view := reply.get("view"):
+            view.message = msg
 
     @recipe.autocomplete("search")
     async def _recipe_names(self, interaction: discord.Interaction, current: str):
-        source: RecipeSource | None = getattr(self.bot, "recipes", None)
-        book = source.peek() if source else None
-        if book is None:
+        if self.source is None:
             return []
+        book = self.source.peek()
+        if book is None:
+            # Discord drops autocomplete answers after 3 seconds, so don't wait long.
+            try:
+                book = await asyncio.wait_for(self.source.get(), timeout=2.0)
+            except Exception:
+                return []
         options = names(book)
         if current:
             low = current.lower()
@@ -311,11 +370,13 @@ class Recipes(commands.Cog):
         text, mode = split_mode(query)
         book = await self.book()
         catalog = await catalog_for(self.bot, mode)
-        embed, view = recipe_reply(book, catalog, text, ctx.author.id)
-        msg = await ctx.reply(embed=embed, view=view, mention_author=False)
-        if view is not None:
+        reply = await recipe_reply(book, catalog, text, ctx.author.id, self.bot.session)
+        msg = await ctx.reply(**reply, mention_author=False)
+        if view := reply.get("view"):
             view.message = msg
 
 
 async def setup(bot: NerdBot) -> None:
     await bot.add_cog(Recipes(bot))
+
+

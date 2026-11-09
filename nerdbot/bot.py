@@ -57,6 +57,10 @@ class NerdBot(commands.Bot):
                 await self.store.get(mode)
             except Exception:
                 log.exception("Initial %s load failed; will retry on refresh", mode)
+        try:
+            await self.recipes.get()  # so /recipe autocomplete has names right away
+        except Exception:
+            log.exception("Initial recipe load failed; will retry on refresh")
         for ext in EXTENSIONS:
             await self.load_extension(ext)
         await self._sync_commands()
@@ -105,6 +109,11 @@ class NerdBot(commands.Bot):
                     await self.store.get(mode)
             except Exception:
                 log.exception("Refreshing %s failed; keeping the previous data", mode)
+        if self.recipes is not None:
+            try:
+                await self.recipes.get()
+            except Exception:
+                log.exception("Refreshing recipes failed; keeping the previous data")
         if self.is_ready():
             await self._update_presence()
 
